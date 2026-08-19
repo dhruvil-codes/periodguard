@@ -46,6 +46,7 @@ class Evaluator:
         corpus: Optional[Corpus] = None,
         validators: Optional[List[BaseValidator]] = None,
         use_llm: bool = False,
+        api_key: Optional[str] = None,
     ):
         if corpus is None:
             default_path = Path(__file__).parent.parent / "data" / "corpus.json"
@@ -61,13 +62,14 @@ class Evaluator:
             CitationSupportProxyValidator(),
         ]
         self.use_llm = use_llm
-        self.llm_adapter = LLMAnswerAdapter()
+        self.llm_adapter = LLMAnswerAdapter(api_key=api_key)
 
     def evaluate(
         self,
         case: Optional[EvaluationCase] = None,
         mode: RetrievalMode = RetrievalMode.CORRECT,
         custom_answer: Optional[StructuredAnswer] = None,
+        api_key: Optional[str] = None,
     ) -> EvaluationReport:
         if case is None:
             case = get_default_case()
@@ -85,8 +87,9 @@ class Evaluator:
         # Step 2: Answer synthesis (custom, live LLM, or deterministic fixture)
         if custom_answer is not None:
             answer = custom_answer
-        elif self.use_llm:
-            answer = self.llm_adapter.generate_answer(
+        elif self.use_llm or bool(api_key):
+            adapter = LLMAnswerAdapter(api_key=api_key) if api_key else self.llm_adapter
+            answer = adapter.generate_answer(
                 query=case.question,
                 retrieved_docs=retrieved_docs,
                 company=case.company,
@@ -100,16 +103,17 @@ class Evaluator:
         all_failures: List[ValidationFailure] = []
 
         for validator in self.validators:
-            status, failures = validator.validate(
+            status, fails = validator.validate(
                 claims=answer.claims,
                 retrieved_docs=retrieved_docs,
                 corpus=self.corpus,
                 case=case,
             )
             checks[validator.name] = status
-            all_failures.extend(failures)
+            if fails:
+                all_failures.extend(fails)
 
-        overall_status = ValidationStatus.FAIL if all_failures else ValidationStatus.PASS
+        overall_status = ValidationStatus.PASS if len(all_failures) == 0 else ValidationStatus.FAIL
 
         return EvaluationReport(
             status=overall_status,
@@ -120,47 +124,63 @@ class Evaluator:
             failures=all_failures,
             claims=answer.claims,
             retrieved_documents=retrieved_docs,
+            answer_text=answer.text,
         )
 
-    def run_both_modes(self, case: Optional[EvaluationCase] = None) -> Dict[str, EvaluationReport]:
+    def run_both_modes(
+        self,
+        case: Optional[EvaluationCase] = None,
+        api_key: Optional[str] = None,
+    ) -> Dict[str, EvaluationReport]:
         if case is None:
             case = get_default_case()
 
-        correct_report = self.evaluate(case=case, mode=RetrievalMode.CORRECT)
-        broken_report = self.evaluate(case=case, mode=RetrievalMode.BROKEN)
+        report_correct = self.evaluate(case=case, mode=RetrievalMode.CORRECT, api_key=api_key)
+        report_broken = self.evaluate(case=case, mode=RetrievalMode.BROKEN, api_key=api_key)
 
         return {
-            "correct_mode": correct_report,
-            "broken_mode": broken_report,
+            "correct_mode": report_correct,
+            "broken_mode": report_broken,
         }
 
 
-def run_cli():
-    parser = argparse.ArgumentParser(description="PeriodGuard Evaluation Harness")
-    parser.add_argument("--llm", action="store_true", help="Use live LLM adapter (OpenAI / Gemini)")
+def main():
+    parser = argparse.ArgumentParser(description="PeriodGuard Financial Evaluation Harness")
+    parser.add_argument(
+        "--mode",
+        choices=["correct", "broken", "both"],
+        default="both",
+        help="Evaluation mode to run (correct, broken, or both)",
+    )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Use live LLM answer adapter instead of deterministic synthesizer",
+    )
     args = parser.parse_args()
 
     evaluator = Evaluator(use_llm=args.llm)
-    reports = evaluator.run_both_modes()
-    correct = reports["correct_mode"]
-    broken = reports["broken_mode"]
 
-    print("=" * 60)
-    print(f"PERIODGUARD EVALUATION RUN {'(LIVE LLM)' if args.llm else '(DETERMINISTIC)'}")
-    print("=" * 60)
-    print(f"CORRECT MODE: {correct.status.value}")
-    if correct.failures:
-        for f in correct.failures:
-            print(f"  - [{f.type.value}] {f.message}")
+    if args.mode in {"correct", "both"}:
+        rep_c = evaluator.evaluate(mode=RetrievalMode.CORRECT)
+        print("=== CORRECT MODE REPORT ===")
+        print(f"Status: {rep_c.status.value}")
+        print(f"Answer: {rep_c.answer_text}")
+        print(f"Checks: {[k + '=' + v.value for k, v in rep_c.checks.items()]}")
+        print(f"Failures: {len(rep_c.failures)}")
+        for f in rep_c.failures:
+            print(f"  - {f.type.value}: {f.message}")
 
-    broken_failure_types = ", ".join(sorted({f.type.value for f in broken.failures}))
-    print(f"BROKEN MODE: {broken.status.value} -- {broken_failure_types}")
-    if broken.failures:
-        for f in broken.failures:
-            print(f"  - [{f.type.value}] Doc: {f.document_id} (Pub: {f.publication_date}) vs As-Of: {f.as_of_date}")
-            print(f"    Message: {f.message}")
-    print("=" * 60)
+    if args.mode in {"broken", "both"}:
+        rep_b = evaluator.evaluate(mode=RetrievalMode.BROKEN)
+        print("\n=== BROKEN MODE REPORT (Naive RAG / Future Leak) ===")
+        print(f"Status: {rep_b.status.value}")
+        print(f"Answer: {rep_b.answer_text}")
+        print(f"Checks: {[k + '=' + v.value for k, v in rep_b.checks.items()]}")
+        print(f"Failures: {len(rep_b.failures)}")
+        for f in rep_b.failures:
+            print(f"  - {f.type.value}: {f.message}")
 
 
 if __name__ == "__main__":
-    run_cli()
+    main()

@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage.",
-    version="2.0.0",
+    version="2.2.0",
 )
 
 app.add_middleware(
@@ -62,6 +62,7 @@ class CustomEvaluationRequest(BaseModel):
     as_of_date: str = Field(default="2025-05-15")
     as_of_reporting_period: str = Field(default="Q4 FY25")
     use_llm: bool = Field(default=False)
+    api_key: Optional[str] = Field(default=None)
 
 
 class AddDocumentRequest(BaseModel):
@@ -77,7 +78,7 @@ class AddDocumentRequest(BaseModel):
 
 BENCHMARK_TESTS = [
     {
-        "id": "future_leak_trap",
+        "id": "future_leak_default",
         "title": "Future-Period Leak Trap",
         "badge": "High-Signal Trap",
         "badge_color": "rose",
@@ -228,14 +229,14 @@ async def upload_document_file(
     }
 
 
-def execute_evaluation(case: EvaluationCase, use_llm: bool = False) -> Dict[str, Any]:
+def execute_evaluation(case: EvaluationCase, use_llm: bool = False, api_key: Optional[str] = None) -> Dict[str, Any]:
     ev = evaluator_llm if use_llm else evaluator_deterministic
     ev.corpus = active_corpus
     ev.retriever.corpus = active_corpus
 
-    reports = ev.run_both_modes(case=case)
+    reports = ev.run_both_modes(case=case, api_key=api_key)
     return {
-        "engine": "llm" if (use_llm and ev.llm_adapter.is_available) else "deterministic",
+        "engine": "llm" if (use_llm or bool(api_key)) else "deterministic",
         "case": case.model_dump(mode="json"),
         "correct_mode": reports["correct_mode"].model_dump(mode="json"),
         "broken_mode": reports["broken_mode"].model_dump(mode="json"),
@@ -258,7 +259,7 @@ def evaluate_custom(req: CustomEvaluationRequest) -> Dict[str, Any]:
         expected_metric="EBITDA margin",
         expected_unit="bps",
     )
-    return execute_evaluation(case, use_llm=req.use_llm)
+    return execute_evaluation(case, use_llm=req.use_llm, api_key=req.api_key)
 
 
 @app.post("/evaluate")
@@ -711,12 +712,12 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
     .prompt-controls-grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr 1fr 1fr auto;
+      grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr auto;
       gap: 0.65rem;
       align-items: flex-end;
     }
 
-    @media (max-width: 820px) {
+    @media (max-width: 900px) {
       .prompt-controls-grid { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 480px) {
@@ -736,7 +737,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
     /* 4. Live Results & Verification Section */
     .results-section {
-      margin-top: 2rem;
+      margin-top: 1.5rem;
       display: flex;
       flex-direction: column;
       gap: 1.5rem;
@@ -1148,7 +1149,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <!-- Tab B: Plain English Prompt -->
       <div class="tab-pane" id="tabPanePrompt">
         <div class="prompt-container">
-          <textarea id="promptInput" class="prompt-textarea" placeholder="Ask any financial question in plain English (e.g. Did Acme Industries' EBITDA margin improve in Q4 FY25?)...">As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.</textarea>
+          <textarea id="promptInput" class="prompt-textarea" placeholder="Ask any financial question in plain English (e.g. What is the EBITDA margin of Acme Industries? or What was revenue?)...">What is the EBITDA Margin of Acme Industries?</textarea>
           
           <div class="prompt-controls-grid">
             <div>
@@ -1165,10 +1166,14 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
             </div>
             <div>
               <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Engine</label>
-              <select id="engineSelect" class="input-field">
-                <option value="deterministic">Deterministic</option>
-                <option value="llm">Live LLM</option>
+              <select id="engineSelect" class="input-field" onchange="toggleApiKeyField()">
+                <option value="deterministic">Deterministic RAG</option>
+                <option value="llm">Live LLM (Groq/OpenAI)</option>
               </select>
+            </div>
+            <div id="apiKeyCol" style="display: none;">
+              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">API Key (Groq / OpenAI)</label>
+              <input type="password" id="apiKeyInput" class="input-field" placeholder="gsk_... or sk-...">
             </div>
             <button id="btnRunCustomPrompt" class="btn btn-primary" onclick="runCustomPromptEvaluation()" style="height: 36px;">
               ⚡ Run Evaluation
@@ -1176,73 +1181,71 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
           </div>
         </div>
       </div>
+
+      <!-- 4. Live Evaluated Output (Right Here in Step 2 Section) -->
+      <div class="results-section">
+        <article class="verified-result-card">
+          <div class="result-head">
+            <div>
+              <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
+              <div style="font-size: 0.8rem; color: var(--text-dim);">Evaluated against 4 PeriodGuard Deterministic Reliability Validators</div>
+            </div>
+            <div id="verifiedBadge" class="gate-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
+          </div>
+
+          <div id="answerLeadText" class="answer-lead">
+            Loading verified response...
+          </div>
+
+          <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
+            Verified Evidence Citations (Click to inspect full document &amp; timeline)
+          </div>
+          <div id="claimsList" class="claims-list"></div>
+        </article>
+
+        <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
+        <section class="comparison-explainer">
+          <div class="comp-header" onclick="toggleComparison()">
+            <h3>
+              <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
+            </h3>
+            <span class="toggle-arrow" id="compArrow">▼</span>
+          </div>
+          
+          <div class="comp-body" id="compBody">
+            <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
+              In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
+              PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
+            </p>
+
+            <div class="diff-grid">
+              <!-- Broken Naive RAG column -->
+              <div class="diff-box failed">
+                <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
+                  ✗ Naive RAG (Unfiltered Citation Leak)
+                </div>
+                <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
+                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
+              </div>
+
+              <!-- PeriodGuard Verified column -->
+              <div class="diff-box passed">
+                <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
+                  ✓ PeriodGuard Gate (Period-Correct)
+                </div>
+                <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
+                  Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
+                </div>
+                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
+                  ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
     </section>
-
-    <!-- 4. Live Results & Verification Presentation -->
-    <main class="results-section">
-      
-      <!-- Primary Verified Answer Card -->
-      <article class="verified-result-card">
-        <div class="result-head">
-          <div>
-            <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">Evaluated against 4 PeriodGuard Deterministic Reliability Validators</div>
-          </div>
-          <div id="verifiedBadge" class="gate-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
-        </div>
-
-        <div id="answerLeadText" class="answer-lead">
-          Loading verified response...
-        </div>
-
-        <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
-          Verified Evidence Citations (Click to inspect full document &amp; timeline)
-        </div>
-        <div id="claimsList" class="claims-list"></div>
-      </article>
-
-      <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
-      <section class="comparison-explainer">
-        <div class="comp-header" onclick="toggleComparison()">
-          <h3>
-            <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
-          </h3>
-          <span class="toggle-arrow" id="compArrow">▼</span>
-        </div>
-        
-        <div class="comp-body" id="compBody">
-          <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
-            In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
-            PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
-          </p>
-
-          <div class="diff-grid">
-            <!-- Broken Naive RAG column -->
-            <div class="diff-box failed">
-              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
-                ✗ Naive RAG (Unfiltered Citation Leak)
-              </div>
-              <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
-              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
-            </div>
-
-            <!-- PeriodGuard Verified column -->
-            <div class="diff-box passed">
-              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
-                ✓ PeriodGuard Gate (Period-Correct)
-              </div>
-              <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
-                Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
-              </div>
-              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
-                ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-    </main>
 
   </div>
 
@@ -1324,13 +1327,18 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 
+    function toggleApiKeyField() {
+      const isLlm = document.getElementById('engineSelect').value === 'llm';
+      document.getElementById('apiKeyCol').style.display = isLlm ? 'block' : 'none';
+    }
+
     function renderUI(data) {
       const correct = data.correct_mode;
       const broken = data.broken_mode;
 
-      document.getElementById('answerLeadText').textContent = correct.claims && correct.claims.length > 0
-        ? `"${correct.claims.map(c => c.text).join(' ')}"`
-        : "No safe eligible evidence was found published on or before the requested cutoff date.";
+      document.getElementById('answerLeadText').textContent = correct.answer_text || (correct.claims && correct.claims.length > 0
+        ? correct.claims.map(c => c.text).join(' ')
+        : "No safe eligible evidence was found published on or before the requested cutoff date.");
 
       const isPass = correct.status === 'PASS';
       const badge = document.getElementById('verifiedBadge');
@@ -1429,7 +1437,8 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         company: document.getElementById('companyInput').value,
         as_of_date: document.getElementById('asOfDateInput').value,
         as_of_reporting_period: document.getElementById('periodInput').value,
-        use_llm: document.getElementById('engineSelect').value === 'llm'
+        use_llm: document.getElementById('engineSelect').value === 'llm',
+        api_key: document.getElementById('apiKeyInput')?.value || null
       };
 
       try {
@@ -1441,8 +1450,6 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         if (resp.ok) {
           appState = await resp.json();
           renderUI(appState);
-          // Scroll smoothly to results
-          document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
         }
       } catch (err) {
         console.error(err);

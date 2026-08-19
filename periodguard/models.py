@@ -11,6 +11,11 @@ class RetrievalMode(str, Enum):
     BROKEN = "broken_no_date_filter"
 
 
+class ValidationStatus(str, Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+
+
 class FailureType(str, Enum):
     INVALID_CITATION = "INVALID_CITATION"
     FUTURE_PERIOD_LEAK = "FUTURE_PERIOD_LEAK"
@@ -18,34 +23,29 @@ class FailureType(str, Enum):
     UNSUPPORTED_CLAIM = "UNSUPPORTED_CLAIM"
 
 
-class ValidationStatus(str, Enum):
-    PASS = "PASS"
-    FAIL = "FAIL"
-
-
 class Document(BaseModel):
-    id: str = Field(..., description="Unique document identifier")
-    company: str = Field(..., description="Company name")
-    doc_type: str = Field(..., description="Type of document (e.g. 10-Q, Results, Earnings Call, Annual Report)")
-    reporting_period: str = Field(..., description="Financial reporting period (e.g. Q4 FY25, FY26)")
-    publication_date: date = Field(..., description="Date document was published or call occurred")
-    page: int = Field(..., description="Page number of the document section")
-    text: str = Field(..., description="Text content of the document or excerpt")
-    source_url: str = Field(..., description="Source URL or provenance metadata")
+    id: str = Field(..., description="Unique document ID (e.g., acme_q4_fy25_results)")
+    company: str = Field(..., description="Entity name (e.g., Acme Industries)")
+    doc_type: str = Field(..., description="Document type (e.g., Press Release, Earnings Call Transcript)")
+    reporting_period: str = Field(..., description="Target reporting period (e.g., Q4 FY25)")
+    publication_date: date = Field(..., description="Date document was published (YYYY-MM-DD)")
+    page: int = Field(default=1, description="Page number of the content snippet")
+    text: str = Field(..., description="Full text or chunk content of the document")
+    source_url: Optional[str] = Field(None, description="Provenance source URL or filing link")
 
 
 class Citation(BaseModel):
     document_id: str = Field(..., description="ID of cited document")
-    page: int = Field(..., description="Page number cited")
-    quoted_text: str = Field(..., description="Exact quoted text from the document")
+    page: int = Field(..., description="Page number in cited document")
+    quoted_text: str = Field(..., description="Verbatim text quote from document")
 
 
 class Claim(BaseModel):
-    text: str = Field(..., description="The factual claim text")
-    metric: Optional[str] = Field(None, description="Financial metric name (e.g. EBITDA margin)")
-    value: Optional[float] = Field(None, description="Numeric value extracted or asserted")
+    text: str = Field(..., description="Natural language statement of the claim")
+    metric: Optional[str] = Field(None, description="Target metric name (e.g. EBITDA margin)")
+    value: Optional[float] = Field(None, description="Normalized numeric value")
     unit: Optional[str] = Field(None, description="Unit of measurement (e.g. bps, %, USD)")
-    period: Optional[str] = Field(None, description="Financial period the claim refers to")
+    period: Optional[str] = Field(None, description="Claimed fiscal period (e.g. Q4 FY25)")
     citations: List[Citation] = Field(default_factory=list, description="Citations supporting this claim")
 
 
@@ -84,3 +84,4 @@ class EvaluationReport(BaseModel):
     failures: List[ValidationFailure] = Field(default_factory=list, description="List of detected failures")
     claims: List[Claim] = Field(default_factory=list, description="Structured claims produced")
     retrieved_documents: List[Document] = Field(default_factory=list, description="Documents retrieved for the case")
+    answer_text: Optional[str] = Field(None, description="Synthesized answer text")
