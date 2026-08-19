@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Interactive evaluation tool for financial research systems detecting future-period citation leakage.",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 app.add_middleware(
@@ -79,7 +79,7 @@ class AddDocumentRequest(BaseModel):
 PRESETS = [
     {
         "id": "future_leak_default",
-        "title": "Future Leak Trap (May 15 Cutoff)",
+        "title": "⚡ Future Leak Trap (May 15)",
         "company": "Acme Industries",
         "question": "As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.",
         "as_of_date": "2025-05-15",
@@ -88,7 +88,7 @@ PRESETS = [
     },
     {
         "id": "clean_historical_pass",
-        "title": "Safe Historical Query (June 1 Cutoff)",
+        "title": "⚡ Clean Historical (June 1)",
         "company": "Acme Industries",
         "question": "What was Acme Industries' sequential EBITDA margin change in Q4 FY25?",
         "as_of_date": "2025-06-01",
@@ -97,7 +97,7 @@ PRESETS = [
     },
     {
         "id": "strict_early_cutoff",
-        "title": "Strict Pre-Release Cutoff (May 11 Cutoff)",
+        "title": "⚡ Pre-Release Call (May 11)",
         "company": "Acme Industries",
         "question": "What management commentary was provided regarding Q4 FY25 EBITDA margin expansion?",
         "as_of_date": "2025-05-11",
@@ -288,7 +288,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       --radius-sm: 8px;
       --radius-md: 12px;
-      --radius-lg: 18px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
 
       --font-display: 'Outfit', sans-serif;
       --font-body: 'Plus Jakarta Sans', sans-serif;
@@ -302,15 +303,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background-color: var(--bg-base);
       color: var(--text-primary);
       min-height: 100vh;
-      line-height: 1.6;
+      line-height: 1.55;
       background-image: 
-        radial-gradient(ellipse 70% 40% at 50% -10%, rgba(99, 102, 241, 0.15), transparent),
-        radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.06), transparent);
-      padding: 2rem 1.5rem 4rem;
+        radial-gradient(ellipse 70% 35% at 50% -10%, rgba(99, 102, 241, 0.14), transparent),
+        radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.05), transparent);
+      padding: 1.5rem 1rem 3.5rem;
     }
 
     .container {
-      max-width: 1040px;
+      max-width: 980px;
       margin: 0 auto;
     }
 
@@ -319,35 +320,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2.25rem;
-      padding-bottom: 1.25rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
       border-bottom: 1px solid var(--border-subtle);
       flex-wrap: wrap;
-      gap: 1rem;
+      gap: 0.75rem;
     }
 
     .brand-title {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.65rem;
       text-decoration: none;
       color: inherit;
     }
 
     .brand-logo {
-      width: 38px;
-      height: 38px;
+      width: 34px;
+      height: 34px;
       background: linear-gradient(135deg, #4f46e5, #06b6d4);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 20px rgba(79, 70, 229, 0.4);
+      box-shadow: 0 0 16px rgba(79, 70, 229, 0.35);
     }
 
     .brand-logo svg {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       fill: none;
       stroke: white;
       stroke-width: 2.2;
@@ -357,38 +358,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .brand-title h1 {
       font-family: var(--font-display);
-      font-size: 1.5rem;
+      font-size: 1.35rem;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
 
     .brand-badge {
       font-family: var(--font-mono);
-      font-size: 0.68rem;
+      font-size: 0.65rem;
       background: rgba(99, 102, 241, 0.2);
       color: #a5b4fc;
       border: 1px solid rgba(99, 102, 241, 0.35);
       padding: 0.15rem 0.45rem;
-      border-radius: 9999px;
-      margin-left: 0.3rem;
+      border-radius: var(--radius-full);
+      margin-left: 0.2rem;
     }
 
     .nav-buttons {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.5rem;
+      flex-wrap: wrap;
     }
 
     .btn {
       font-family: var(--font-body);
       font-weight: 600;
-      font-size: 0.86rem;
-      padding: 0.55rem 1.15rem;
-      border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      padding: 0.45rem 0.9rem;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.4rem;
       transition: all 0.15s ease;
       border: 1px solid transparent;
     }
@@ -413,18 +415,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 255, 255, 0.25);
     }
 
-    /* Core Prompt & Query Box (Like a Financial Terminal) */
+    /* Core Prompt Card */
     .search-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
-      padding: 1.5rem;
-      margin-bottom: 2rem;
-      box-shadow: 0 12px 36px rgba(0,0,0,0.3);
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.3);
     }
 
     .search-input-box {
-      margin-bottom: 1.2rem;
+      margin-bottom: 0.85rem;
     }
 
     .search-input-label {
@@ -434,7 +436,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--cyan-500);
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.4rem;
       display: block;
     }
 
@@ -442,46 +444,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       width: 100%;
       background: rgba(0, 0, 0, 0.45);
       border: 1px solid var(--border-strong);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-sm);
       color: #ffffff;
       font-family: var(--font-body);
-      font-size: 1.05rem;
-      padding: 0.9rem 1.1rem;
+      font-size: 0.96rem;
+      padding: 0.75rem 0.95rem;
       line-height: 1.5;
       resize: vertical;
-      min-height: 76px;
-      transition: all 0.2s ease;
+      min-height: 68px;
+      transition: all 0.15s ease;
     }
 
     .main-textarea:focus {
       outline: none;
       border-color: var(--cyan-500);
-      box-shadow: 0 0 14px rgba(6, 182, 212, 0.2);
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
     }
 
     .controls-row {
       display: grid;
       grid-template-columns: 1.2fr 1fr 1fr 1fr auto;
-      gap: 0.85rem;
+      gap: 0.65rem;
       align-items: flex-end;
     }
 
-    @media (max-width: 860px) {
+    @media (max-width: 820px) {
       .controls-row { grid-template-columns: 1fr 1fr; }
     }
-    @media (max-width: 520px) {
+    @media (max-width: 480px) {
       .controls-row { grid-template-columns: 1fr; }
     }
 
     .field-group {
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
+      gap: 0.25rem;
     }
 
     .field-label {
       font-family: var(--font-mono);
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       color: var(--text-secondary);
       font-weight: 600;
       text-transform: uppercase;
@@ -493,31 +495,32 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-radius: var(--radius-sm);
       color: #ffffff;
       font-family: var(--font-body);
-      font-size: 0.86rem;
-      padding: 0.5rem 0.75rem;
+      font-size: 0.84rem;
+      padding: 0.45rem 0.65rem;
       width: 100%;
     }
 
     .presets-row {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-top: 1.2rem;
-      padding-top: 1rem;
+      gap: 0.4rem;
+      margin-top: 0.9rem;
+      padding-top: 0.85rem;
       border-top: 1px solid var(--border-subtle);
       flex-wrap: wrap;
     }
 
     .preset-pill {
       font-family: var(--font-mono);
-      font-size: 0.75rem;
-      padding: 0.3rem 0.65rem;
+      font-size: 0.72rem;
+      padding: 0.25rem 0.55rem;
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid var(--border-subtle);
       color: var(--text-secondary);
       border-radius: var(--radius-sm);
       cursor: pointer;
       transition: all 0.15s ease;
+      white-space: nowrap;
     }
 
     .preset-pill:hover {
@@ -526,101 +529,103 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: #ffffff;
     }
 
-    /* Core Verified Result Presentation */
+    /* Core Result Section */
     .result-section {
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 1.25rem;
     }
 
     .verified-answer-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
-      padding: 1.75rem;
+      padding: 1.5rem;
       position: relative;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+      box-shadow: 0 8px 28px rgba(0,0,0,0.3);
     }
 
     .card-top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1rem;
       flex-wrap: wrap;
-      gap: 0.75rem;
+      gap: 0.6rem;
     }
 
     .reliability-badge {
       font-family: var(--font-mono);
-      font-size: 0.84rem;
+      font-size: 0.8rem;
       font-weight: 700;
-      padding: 0.4rem 0.9rem;
+      padding: 0.3rem 0.75rem;
       border-radius: var(--radius-full);
       display: inline-flex;
       align-items: center;
-      gap: 0.45rem;
-      letter-spacing: 0.03em;
+      gap: 0.4rem;
+      letter-spacing: 0.02em;
     }
 
     .reliability-badge.safe {
       background: var(--emerald-bg);
       color: var(--emerald-500);
       border: 1px solid var(--emerald-border);
-      box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.12);
     }
 
     .reliability-badge.unsafe {
       background: var(--rose-bg);
       color: var(--rose-500);
       border: 1px solid var(--rose-border);
-      box-shadow: 0 0 16px rgba(244, 63, 94, 0.15);
+      box-shadow: 0 0 14px rgba(244, 63, 94, 0.12);
     }
 
     .answer-lead {
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       color: #ffffff;
       line-height: 1.6;
       font-weight: 500;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.15rem;
     }
 
     .claims-container {
       display: flex;
       flex-direction: column;
-      gap: 0.85rem;
-      margin-top: 1rem;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
     }
 
     .claim-box {
       background: var(--bg-surface-elevated);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      padding: 1rem 1.15rem;
+      padding: 0.85rem 1rem;
     }
 
     .claim-header {
       display: flex;
       justify-content: space-between;
-      font-size: 0.88rem;
+      font-size: 0.84rem;
       color: #e2e8f0;
-      margin-bottom: 0.6rem;
+      margin-bottom: 0.5rem;
+      flex-wrap: wrap;
+      gap: 0.4rem;
     }
 
     .citation-chip {
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid var(--border-strong);
       border-left: 3px solid var(--indigo-500);
-      padding: 0.55rem 0.85rem;
-      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.75rem;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
       cursor: pointer;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--text-secondary);
       transition: all 0.15s ease;
       display: block;
       width: 100%;
       text-align: left;
-      margin-top: 0.4rem;
+      margin-top: 0.35rem;
     }
 
     .citation-chip:hover {
@@ -631,7 +636,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .chip-doc-title {
       font-family: var(--font-mono);
-      font-size: 0.76rem;
+      font-size: 0.74rem;
       color: #93c5fd;
       display: flex;
       justify-content: space-between;
@@ -643,7 +648,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background: linear-gradient(145deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
       border: 1px solid rgba(99, 102, 241, 0.3);
       border-radius: var(--radius-lg);
-      padding: 1.5rem 1.75rem;
+      padding: 1.25rem 1.5rem;
     }
 
     .explainer-header {
@@ -656,15 +661,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .explainer-header h3 {
       font-family: var(--font-display);
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       font-weight: 700;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
     }
 
     .toggle-arrow {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--text-secondary);
       transition: transform 0.2s ease;
     }
@@ -674,8 +679,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     .explainer-content {
-      margin-top: 1.25rem;
-      padding-top: 1.25rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
       border-top: 1px solid var(--border-subtle);
       display: none;
     }
@@ -687,11 +692,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .diff-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1.25rem;
-      margin-top: 1rem;
+      gap: 1rem;
+      margin-top: 0.85rem;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 720px) {
       .diff-grid { grid-template-columns: 1fr; }
     }
 
@@ -699,7 +704,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background: rgba(0, 0, 0, 0.35);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      padding: 1.1rem;
+      padding: 0.95rem;
     }
 
     .diff-col.failed {
@@ -712,9 +717,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .diff-col-title {
       font-family: var(--font-mono);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 700;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.45rem;
     }
 
     /* Modal / Drawer */
@@ -738,11 +743,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%) scale(0.96);
-      width: 90%; max-width: 600px;
+      width: 92%; max-width: 580px;
       background: #0d1322;
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
-      padding: 2rem;
+      padding: 1.5rem;
       z-index: 999;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
       opacity: 0;
@@ -760,19 +765,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
     }
 
     .modal-head h3 {
       font-family: var(--font-display);
-      font-size: 1.25rem;
+      font-size: 1.15rem;
       font-weight: 700;
     }
 
     .inspector-drawer {
       position: fixed;
       top: 0; right: 0; bottom: 0;
-      width: 100%; max-width: 500px;
+      width: 100%; max-width: 480px;
       background: #0d1322;
       border-left: 1px solid var(--border-strong);
       z-index: 999;
@@ -789,17 +794,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.5rem;
+      padding: 1.25rem 1.5rem;
       border-bottom: 1px solid var(--border-subtle);
     }
 
     .drawer-content {
-      padding: 1.5rem;
+      padding: 1.25rem 1.5rem;
       overflow-y: auto;
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
+      gap: 1.15rem;
     }
 
     .btn-close {
@@ -807,8 +812,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border: 1px solid var(--border-subtle);
       color: var(--text-secondary);
       font-size: 1.2rem;
-      width: 32px;
-      height: 32px;
+      width: 30px;
+      height: 30px;
       border-radius: var(--radius-sm);
       cursor: pointer;
     }
@@ -821,7 +826,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .meta-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
@@ -829,23 +834,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     .meta-table td {
-      padding: 0.55rem 0.8rem;
+      padding: 0.5rem 0.75rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
 
     .meta-table td:first-child {
       color: var(--text-muted);
       font-family: var(--font-mono);
-      font-size: 0.74rem;
-      width: 40%;
+      font-size: 0.72rem;
+      width: 38%;
     }
 
     .quote-box {
       background: #070a12;
       border: 1px solid rgba(99, 102, 241, 0.25);
       border-radius: var(--radius-md);
-      padding: 0.9rem;
-      font-size: 0.82rem;
+      padding: 0.85rem;
+      font-size: 0.8rem;
       line-height: 1.55;
       color: #cbd5e1;
       font-style: italic;
@@ -873,7 +878,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </header>
 
-    <!-- Interactive Prompt / Terminal Input -->
+    <!-- Interactive Prompt Box -->
     <section class="search-card">
       <div class="search-input-box">
         <label class="search-input-label">Prompt / Research Question</label>
@@ -900,13 +905,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <option value="llm">Live LLM</option>
           </select>
         </div>
-        <button id="btnVerify" class="btn btn-primary" onclick="handleVerifyClick()" style="height: 38px;">
+        <button id="btnVerify" class="btn btn-primary" onclick="handleVerifyClick()" style="height: 36px;">
           ⚡ Verify with PeriodGuard
         </button>
       </div>
 
       <div class="presets-row">
-        <span style="font-size: 0.74rem; color: var(--text-muted); margin-right: 0.2rem;">Quick Sample Prompts:</span>
+        <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">Quick Sample Prompts:</span>
         <button class="preset-pill" onclick="applyPreset(0)">⚡ Future Leak Trap (May 15)</button>
         <button class="preset-pill" onclick="applyPreset(1)">⚡ Clean Historical (June 1)</button>
         <button class="preset-pill" onclick="applyPreset(2)">⚡ Pre-Release Call (May 11)</button>
@@ -920,8 +925,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <article class="verified-answer-card">
         <div class="card-top-bar">
           <div>
-            <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
-            <div style="font-size: 0.8rem; color: var(--text-muted);">Gated by PeriodGuard Deterministic Reliability Validators</div>
+            <h2 style="font-family: var(--font-display); font-size: 1.18rem;">Evaluated &amp; Verified Answer</h2>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Gated by PeriodGuard Deterministic Reliability Validators</div>
           </div>
           <div id="verifiedBadge" class="reliability-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
         </div>
@@ -930,12 +935,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           Loading verified response...
         </div>
 
-        <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem;">
+        <div style="font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.4rem;">
           Traceable Evidence Citations (Click to inspect source)
         </div>
-        <div id="claimsList" class="claims-container">
-          <!-- Populated by JS -->
-        </div>
+        <div id="claimsList" class="claims-container"></div>
       </article>
 
       <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
@@ -948,7 +951,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
         
         <div class="explainer-content" id="explainerContent">
-          <p style="font-size: 0.88rem; color: #cbd5e1; margin-bottom: 1rem;">
+          <p style="font-size: 0.84rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
             In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
             PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
           </p>
@@ -957,21 +960,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <!-- Broken Naive RAG column -->
             <div class="diff-col failed">
               <div class="diff-col-title" style="color: #fb7185;">✗ Naive RAG (Unfiltered Citation Leak)</div>
-              <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.75rem;">
-                <!-- Populated by JS -->
-              </div>
-              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails">
-                <!-- Populated by JS -->
-              </div>
+              <div id="naiveRagSummary" style="font-size: 0.8rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
+              <div style="font-size: 0.72rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
             </div>
 
             <!-- PeriodGuard Verified column -->
             <div class="diff-col passed">
               <div class="diff-col-title" style="color: #34d399;">✓ PeriodGuard Gate (Period-Correct)</div>
-              <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.75rem;">
+              <div style="font-size: 0.8rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
                 Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
               </div>
-              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
+              <div style="font-size: 0.72rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
                 ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
               </div>
             </div>
@@ -985,12 +984,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   <!-- Document Corpus Modal -->
   <div class="modal-backdrop" id="corpusBackdrop" onclick="closeCorpusModal()"></div>
-  <div class="modal-box" id="corpusModal" style="max-width: 720px;">
+  <div class="modal-box" id="corpusModal">
     <div class="modal-head">
       <h3>Active Document Corpus (<span id="corpusModalCount">4</span>)</h3>
       <button class="btn-close" onclick="closeCorpusModal()">×</button>
     </div>
-    <div style="max-height: 360px; overflow-y: auto; margin-bottom: 1.25rem;" id="corpusTableBox"></div>
+    <div style="max-height: 320px; overflow-y: auto; margin-bottom: 1.25rem;" id="corpusTableBox"></div>
     <div style="display: flex; justify-content: space-between;">
       <button class="btn btn-secondary" onclick="resetCorpus()">🔄 Reset to Default Fixture</button>
       <button class="btn btn-primary" onclick="closeCorpusModal()">Done</button>
@@ -1005,12 +1004,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <button class="btn-close" onclick="closeUploadModal()">×</button>
     </div>
     <form onsubmit="handleUploadSubmit(event)">
-      <div style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.25rem;">
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem;">
         <div class="field-group">
           <label class="field-label">Select File (.pdf, .txt, .json)</label>
           <input type="file" id="uploadFileInput" class="field-input" required accept=".pdf,.txt,.json">
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div class="field-group">
             <label class="field-label">Company</label>
             <input type="text" id="uploadCompanyInput" class="field-input" value="Acme Industries" required>
@@ -1020,7 +1019,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <input type="text" id="uploadTypeInput" class="field-input" value="Quarterly Results" required>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div class="field-group">
             <label class="field-label">Publication Date</label>
             <input type="date" id="uploadDateInput" class="field-input" value="2025-05-10" required>
@@ -1043,8 +1042,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <aside class="inspector-drawer" id="inspectorDrawer">
     <div class="drawer-header">
       <div>
-        <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Evidence Inspector</div>
-        <h3 id="drawerDocId" style="font-family: var(--font-display); font-size: 1.15rem;">Document Metadata</h3>
+        <div style="font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Evidence Inspector</div>
+        <h3 id="drawerDocId" style="font-family: var(--font-display); font-size: 1.1rem;">Document Metadata</h3>
       </div>
       <button class="btn-close" onclick="closeDrawer()">×</button>
     </div>
@@ -1062,7 +1061,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     function renderUI(data) {
-      // 1. Render primary verified answer
       const correct = data.correct_mode;
       const broken = data.broken_mode;
 
@@ -1075,7 +1073,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       badge.className = `reliability-badge ${isPass ? 'safe' : 'unsafe'}`;
       badge.textContent = isPass ? '✓ VERIFIED SAFE (Period-Correct)' : '✗ FAILED RELIABILITY GATE';
 
-      // Claims with citations
       const claimsBox = document.getElementById('claimsList');
       claimsBox.innerHTML = correct.claims.map(claim => {
         const citsHtml = claim.citations.map(cit => {
@@ -1103,7 +1100,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         `;
       }).join('');
 
-      // 2. Render Naive RAG failure summary
       const fail = broken.failures.find(f => f.type === 'FUTURE_PERIOD_LEAK') || broken.failures[0];
       if (fail) {
         document.getElementById('naiveRagSummary').innerHTML = `
@@ -1198,7 +1194,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('drawerDocId').textContent = doc.id;
       document.getElementById('drawerBody').innerHTML = `
         <div>
-          <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.4rem;">Document Metadata</div>
+          <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.35rem;">Document Metadata</div>
           <table class="meta-table">
             <tr><td>Document Type</td><td>${escapeHtml(doc.doc_type)}</td></tr>
             <tr><td>Entity</td><td>${escapeHtml(doc.company)}</td></tr>
@@ -1210,8 +1206,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
 
         <div>
-          <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.4rem;">Temporal Status</div>
-          <div style="padding: 0.8rem; background: ${isFuture ? 'rgba(244,63,94,0.12)' : 'rgba(16,185,129,0.12)'}; border: 1px solid ${isFuture ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}; border-radius: 8px; font-size: 0.82rem; color: ${isFuture ? '#fecdd3' : '#a7f3d0'};">
+          <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.35rem;">Temporal Status</div>
+          <div style="padding: 0.75rem; background: ${isFuture ? 'rgba(244,63,94,0.12)' : 'rgba(16,185,129,0.12)'}; border: 1px solid ${isFuture ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}; border-radius: 8px; font-size: 0.8rem; color: ${isFuture ? '#fecdd3' : '#a7f3d0'};">
             ${isFuture 
               ? `🚨 <strong>FUTURE-PERIOD LEAK:</strong> Document published on ${doc.publication_date} violates the as-of cutoff boundary (${asOf}).`
               : `✓ <strong>WITHIN CUTOFF:</strong> Published on ${doc.publication_date}, safe for as-of date (${asOf}).`}
@@ -1219,7 +1215,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
 
         <div>
-          <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.4rem;">Verbatim Evidence Quote</div>
+          <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.35rem;">Verbatim Evidence Quote</div>
           <div class="quote-box">"${escapeHtml(quotedText || doc.text)}"</div>
         </div>
       `;
@@ -1256,10 +1252,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <table class="meta-table">
             <thead>
               <tr style="background: rgba(255,255,255,0.04); font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted);">
-                <th style="padding: 0.5rem 0.8rem; text-align: left;">ID</th>
-                <th style="padding: 0.5rem 0.8rem; text-align: left;">Company</th>
-                <th style="padding: 0.5rem 0.8rem; text-align: left;">Period</th>
-                <th style="padding: 0.5rem 0.8rem; text-align: left;">Published</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: left;">ID</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: left;">Company</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: left;">Period</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: left;">Published</th>
               </tr>
             </thead>
             <tbody>
