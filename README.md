@@ -1,58 +1,66 @@
-# PeriodGuard
+# PeriodGuard • Evaluation & Reliability Workbench
 
-> **An evaluation harness for financial research systems that tests whether financial claims are period-correct, entity-correct, numerically supported, and traceable to the evidence they cite.**
+> **An interactive evaluation workbench and testing tool for financial research systems. Tests whether financial answers are period-correct, entity-correct, numerically supported, and traceable to the exact evidence they cite.**
 
 ---
 
-## 🎯 Problem Statement: Why Citation Presence Is Insufficient
+## 🎯 Problem: Why Citation Presence Is Insufficient
 
-In financial research workflows, LLMs and retrieval pipelines generate responses from corpora spanning multiple reporting years and publication dates. If retrieval fails to strictly enforce temporal boundaries, a system can easily retrieve later information to answer a historical question.
+In financial research workflows, retrieval pipelines and LLMs generate answers from filings across multiple fiscal years. When temporal boundaries are not strictly enforced, systems frequently cite subsequent earnings reports to answer historical questions.
 
 This creates a high-signal, deceptive failure mode:
-1. The answer looks numerically plausible and fluent.
-2. The answer is accompanied by a valid, resolvable citation.
-3. **A naive "citation-presence" check passes it.**
-4. **However, the citation leaks future data published after the user's requested as-of date.**
+1. The answer looks fluent and numerically plausible.
+2. The citation resolves to a real document and page.
+3. **A basic citation-presence check passes it.**
+4. **However, the source was published months after the requested as-of date (Future-Period Citation Leak).**
 
 > **Core Axiom:** *"A citation exists"* $\neq$ *"The cited answer is safe to use."*
 
-PeriodGuard makes this failure visible, reproducible, and machine-detectable.
+PeriodGuard makes this failure visible, reproducible, interactive, and machine-detectable.
+
+---
+
+## 🛠️ Interactive Capabilities
+
+- **⚡ Live Evaluation Workbench:** Tune research questions, target company, as-of cutoff date, and target fiscal periods in real-time.
+- **📄 Ingest Custom PDFs & Filings:** Upload any earnings release or 10-Q PDF (`pypdf` extraction) into the live testing corpus.
+- **📚 Dynamic Corpus Manager:** Inspect active documents in memory, add manual records, or reset to standard fixtures.
+- **🔍 Deep Evidence Inspector:** Click any citation chip to view full document metadata, provenance URL, verbatim context, and visual timeline chart comparing publication date against as-of boundaries.
+- **🤖 Dual-Engine Support:** Run offline deterministic evaluation (0 token cost, <0.5s execution) or connect to live LLMs (OpenAI, Gemini, Ollama) via `--llm`.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-                      data/corpus.json
-                            │
-                            ▼
-                Corpus Metadata Loader
-                            │
-                            ▼
-                 Company & As-Of Filter
-                 (Enabled vs Disabled)
-                            │
-                            ▼
-                 Deterministic Retrieval
-                 (Token-Overlap Scoring)
-                            │
-                            ▼
-                 Structured Claim Synthesizer
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-    Citation             Temporal        Entity / Period
-   Resolution          Consistency          Alignment
-(INVALID_CITATION) (FUTURE_PERIOD_LEAK) (ENTITY_OR_PERIOD_MISMATCH)
-        │                   │                   │
-        └───────────────────┼───────────────────┘
-                            │
-                            ▼
-                 Citation Support Proxy
-                  (UNSUPPORTED_CLAIM)
-                            │
-                            ▼
-             Evaluation Report (CLI & Web UI)
+                 Corpus Documents / Uploaded PDFs
+                                │
+                                ▼
+                     Metadata Filtering Engine
+                   (Company & As-Of Date Gate)
+                                │
+                                ▼
+                     Deterministic Retrieval
+                    (Token-Overlap Relevance)
+                                │
+                                ▼
+                  Structured Claim Synthesizer
+                   (Deterministic / Live LLM)
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+    Citation                 Temporal            Entity / Period
+   Resolution              Consistency              Alignment
+(INVALID_CITATION)    (FUTURE_PERIOD_LEAK)   (ENTITY_OR_PERIOD_MISMATCH)
+        │                       │                       │
+        └───────────────────────┼───────────────────────┘
+                                │
+                                ▼
+                     Citation Support Proxy
+                      (UNSUPPORTED_CLAIM)
+                                │
+                                ▼
+               Interactive Workbench & JSON Report
 ```
 
 ---
@@ -64,7 +72,16 @@ PeriodGuard makes this failure visible, reproducible, and machine-detectable.
 pip install -r requirements.txt
 ```
 
-### 2. Run Single-Command Evaluation (CLI)
+### 2. Launch Interactive Web Workbench
+```powershell
+uvicorn periodguard.app:app --reload --port 8000
+```
+Open **[http://localhost:8000](http://localhost:8000)** in your browser to:
+- Test custom financial questions and as-of dates.
+- Ingest local PDF filings and observe immediate evaluation changes.
+- Inspect side-by-side mode comparisons with timeline diagnostics.
+
+### 3. Run Single-Command Evaluation (CLI)
 ```powershell
 python -m periodguard.evaluator
 ```
@@ -72,7 +89,7 @@ python -m periodguard.evaluator
 **Terminal Output:**
 ```
 ============================================================
-PERIODGUARD EVALUATION RUN
+PERIODGUARD EVALUATION RUN (DETERMINISTIC)
 ============================================================
 CORRECT MODE: PASS
 BROKEN MODE: FAIL -- ENTITY_OR_PERIOD_MISMATCH, FUTURE_PERIOD_LEAK, UNSUPPORTED_CLAIM
@@ -81,44 +98,22 @@ BROKEN MODE: FAIL -- ENTITY_OR_PERIOD_MISMATCH, FUTURE_PERIOD_LEAK, UNSUPPORTED_
 ============================================================
 ```
 
-### 3. Run Automated Tests
+### 4. Run Automated Test Suite
 ```powershell
 pytest -v
 ```
-*(Runs 17 unit and integration tests including T1–T8 validator test cases).*
-
-### 4. Launch Browser Dashboard (FastAPI)
-```powershell
-uvicorn periodguard.app:app --reload --port 8000
-```
-Open [http://localhost:8000](http://localhost:8000) to inspect the side-by-side evaluation dashboard.
+*(Runs 23 unit & integration tests covering validators T1–T8, corpus ingestion, and API routes).*
 
 ---
 
 ## 🔍 The 4 Core Validators
 
-| Validator | Purpose | Failure Code |
+| Validator | Target Failure | Failure Code |
 |---|---|---|
-| **Citation Resolution** | Verifies document ID exists in corpus, cited page matches, and quote is present in retrieved evidence. | `INVALID_CITATION` |
-| **Temporal Consistency** | Verifies that cited document publication date does not violate the requested as-of cut-off date (`publication_date <= as_of_date`). | `FUTURE_PERIOD_LEAK` |
-| **Entity / Period Alignment** | Verifies company matches target entity and claim reporting period does not exceed case boundary. | `ENTITY_OR_PERIOD_MISMATCH` |
-| **Citation Support Proxy** | Rule-based proxy verifying numeric values, metric phrases, units, and directional terms in cited quotes. | `UNSUPPORTED_CLAIM` |
-
----
-
-## 📊 Default Evaluation Case
-
-- **Question:** *"As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence."*
-- **Target Company:** Acme Industries
-- **As-Of Date:** `2025-05-15`
-- **Target Period:** `Q4 FY25`
-
-### Comparative Results:
-
-| Mode | Behavior | Result | Failure Code | Offending Document |
-|---|---|---|---|---|
-| **Correct Mode** | Enforces `publication_date <= 2025-05-15` | **`PASS`** | None | None (Excludes FY26 Annual Report) |
-| **Broken Mode** | Disables as-of date filter | **`FAIL`** | `FUTURE_PERIOD_LEAK` | `acme_fy26_annual_report` (Published: `2025-08-20`) |
+| **Citation Resolution** | Document ID missing, page mismatch, or quote not found in retrieved set. | `INVALID_CITATION` |
+| **Temporal Consistency** | Document published after requested as-of date (`publication_date > as_of_date`). | `FUTURE_PERIOD_LEAK` |
+| **Entity / Period Alignment** | Document belongs to peer company or refers to future fiscal period. | `ENTITY_OR_PERIOD_MISMATCH` |
+| **Citation Support Proxy** | Metric name, numeric value, unit, or directional terms unsupported by quote. | `UNSUPPORTED_CLAIM` |
 
 ---
 
@@ -126,25 +121,14 @@ Open [http://localhost:8000](http://localhost:8000) to inspect the side-by-side 
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | Renders the HTML evaluation dashboard |
-| `GET` | `/health` | Returns service health status |
-| `POST` | `/evaluate` | Executes evaluation across both modes and returns structured JSON |
-| `GET` | `/report` | Returns the latest evaluation report JSON |
-
----
-
-## ⚠️ Limitations & Future Enhancements
-
-### Current MVP Scope:
-- Uses local structured JSON corpus fixture (`data/corpus.json`) instead of live PDF parsing.
-- Uses transparent rule-based token overlap and proxy citation verification rather than an external LLM judge.
-- Offline deterministic execution with zero required API keys.
-
-### Future Roadmap:
-1. Real PDF / 10-Q / Earnings Call transcript ingestion pipeline.
-2. Hybrid BM25 + dense vector embeddings retrieval.
-3. LLM-based semantic citation entailment judge.
-4. MCP response adapter for CalQuity-compatible financial workflows.
+| `GET` | `/` | Renders the interactive evaluation workbench UI |
+| `GET` | `/api/presets` | Returns pre-configured evaluation scenarios |
+| `GET` | `/api/corpus` | Lists all documents currently in the testing corpus |
+| `POST` | `/api/corpus/upload` | Ingests uploaded PDF or text file with financial metadata |
+| `POST` | `/api/corpus/reset` | Resets in-memory corpus to default fixture |
+| `POST` | `/api/evaluate/custom` | Runs custom evaluation with user-defined question & as-of date |
+| `POST` | `/evaluate` | Executes default evaluation across both modes |
+| `GET` | `/report` | Returns latest evaluation report JSON |
 
 ---
 

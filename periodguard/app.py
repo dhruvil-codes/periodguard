@@ -1,20 +1,43 @@
 from __future__ import annotations
 
+import io
 import json
-from datetime import date
-from typing import Any, Dict, Optional
+import os
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel, Field
 
+from periodguard.answer import AnswerSynthesizer, LLMAnswerAdapter
+from periodguard.corpus import Corpus
 from periodguard.evaluator import Evaluator, get_default_case
-from periodguard.models import EvaluationReport, RetrievalMode
+from periodguard.models import (
+    Citation,
+    Claim,
+    Document,
+    EvaluationCase,
+    EvaluationReport,
+    FailureType,
+    RetrievalMode,
+    ValidationStatus,
+)
+
+# PDF Support
+try:
+    import pypdf
+    PYPDF_AVAILABLE = True
+except ImportError:
+    PYPDF_AVAILABLE = False
+
 
 app = FastAPI(
     title="PeriodGuard",
-    description="Evaluation harness for financial research systems detecting future-period citation leaks.",
-    version="1.0.0",
+    description="Interactive evaluation workbench for financial research systems detecting future-period citation leakage.",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -25,37 +48,220 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-evaluator_deterministic = Evaluator(use_llm=False)
-evaluator_llm = Evaluator(use_llm=True)
-_latest_reports_cache: Dict[str, EvaluationReport] = {}
+# Shared in-memory corpus and evaluators
+DEFAULT_CORPUS_PATH = Path(__file__).parent.parent / "data" / "corpus.json"
+active_corpus = Corpus.from_json_file(DEFAULT_CORPUS_PATH)
+evaluator_deterministic = Evaluator(corpus=active_corpus, use_llm=False)
+evaluator_llm = Evaluator(corpus=active_corpus, use_llm=True)
 
 
-def get_evaluation_data(use_llm: bool = False) -> Dict[str, Any]:
-    global _latest_reports_cache
+class CustomEvaluationRequest(BaseModel):
+    company: str = Field(default="Acme Industries")
+    question: str = Field(
+        default="As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence."
+    )
+    as_of_date: str = Field(default="2025-05-15")
+    as_of_reporting_period: str = Field(default="Q4 FY25")
+    expected_metric: Optional[str] = Field(default="EBITDA margin")
+    expected_unit: Optional[str] = Field(default="bps")
+    use_llm: bool = Field(default=False)
+
+
+class AddDocumentRequest(BaseModel):
+    id: str
+    company: str
+    doc_type: str
+    reporting_period: str
+    publication_date: str
+    page: int = 1
+    text: str
+    source_url: str = "Uploaded Document"
+
+
+PRESETS = [
+    {
+        "id": "future_leak_default",
+        "title": "Default Case: Future-Period Leak",
+        "badge": "Temporal Gate Trap",
+        "company": "Acme Industries",
+        "question": "As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.",
+        "as_of_date": "2025-05-15",
+        "as_of_reporting_period": "Q4 FY25",
+        "expected_metric": "EBITDA margin",
+        "expected_unit": "bps",
+        "description": "Tests if retrieval leaks the FY26 Annual Report (published Aug 2025) to answer a May 2025 query.",
+    },
+    {
+        "id": "clean_historical_pass",
+        "title": "Clean Historical Query (Safe Window)",
+        "badge": "Safe Query",
+        "company": "Acme Industries",
+        "question": "What was Acme Industries' sequential EBITDA margin change in Q4 FY25?",
+        "as_of_date": "2025-06-01",
+        "as_of_reporting_period": "Q4 FY25",
+        "expected_metric": "EBITDA margin",
+        "expected_unit": "bps",
+        "description": "Sets the as-of date after Q4 results release (June 2025), verifying a clean PASS across both modes.",
+    },
+    {
+        "id": "strict_early_cutoff",
+        "title": "Strict Early Cutoff (Before Call)",
+        "badge": "Pre-Release Cutoff",
+        "company": "Acme Industries",
+        "question": "What management commentary was provided regarding Q4 FY25 EBITDA margin expansion?",
+        "as_of_date": "2025-05-11",
+        "as_of_reporting_period": "Q4 FY25",
+        "expected_metric": "EBITDA margin",
+        "expected_unit": "bps",
+        "description": "Sets cutoff to May 11, 2025 (before the May 12 Earnings Call), catching calls cited before occurrence.",
+    },
+]
+
+
+@app.get("/health")
+def health_check() -> Dict[str, str]:
+    return {"status": "ok", "service": "PeriodGuard Interactive Evaluation Workbench"}
+
+
+@app.get("/api/presets")
+def get_presets() -> List[Dict[str, Any]]:
+    return PRESETS
+
+
+@app.get("/api/corpus")
+def list_corpus_documents() -> List[Dict[str, Any]]:
+    docs = active_corpus.all_documents()
+    return [doc.model_dump(mode="json") for doc in docs]
+
+
+@app.post("/api/corpus/reset")
+def reset_corpus() -> Dict[str, Any]:
+    global active_corpus, evaluator_deterministic, evaluator_llm
+    active_corpus = Corpus.from_json_file(DEFAULT_CORPUS_PATH)
+    evaluator_deterministic = Evaluator(corpus=active_corpus, use_llm=False)
+    evaluator_llm = Evaluator(corpus=active_corpus, use_llm=True)
+    return {"status": "success", "message": "Corpus restored to default fixtures", "count": len(active_corpus.all_documents())}
+
+
+@app.post("/api/corpus/add")
+def add_document_manual(payload: AddDocumentRequest) -> Dict[str, Any]:
+    try:
+        pub_date = datetime.strptime(payload.publication_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    doc = Document(
+        id=payload.id.strip(),
+        company=payload.company.strip(),
+        doc_type=payload.doc_type.strip(),
+        reporting_period=payload.reporting_period.strip(),
+        publication_date=pub_date,
+        page=payload.page,
+        text=payload.text.strip(),
+        source_url=payload.source_url.strip(),
+    )
+    active_corpus._documents[doc.id] = doc
+    return {"status": "success", "message": f"Document '{doc.id}' added to corpus.", "doc": doc.model_dump(mode="json")}
+
+
+@app.post("/api/corpus/upload")
+async def upload_document_file(
+    file: UploadFile = File(...),
+    company: str = Form("Acme Industries"),
+    doc_type: str = Form("Financial Filing"),
+    reporting_period: str = Form("Q4 FY25"),
+    publication_date: str = Form("2025-05-10"),
+    custom_doc_id: Optional[str] = Form(None),
+) -> Dict[str, Any]:
+    try:
+        pub_date = datetime.strptime(publication_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid publication_date format. Use YYYY-MM-DD.")
+
+    file_bytes = await file.read()
+    filename = file.filename or "uploaded_document"
+    doc_id = (custom_doc_id or Path(filename).stem).lower().replace(" ", "_")
+
+    extracted_text = ""
+    if filename.lower().endswith(".pdf"):
+        if not PYPDF_AVAILABLE:
+            raise HTTPException(status_code=500, detail="PDF parsing library (pypdf) is unavailable.")
+        try:
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            pages_text = [page.extract_text() for page in reader.pages if page.extract_text()]
+            extracted_text = "\n\n".join(pages_text)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+    else:
+        # Text or JSON
+        try:
+            extracted_text = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            extracted_text = file_bytes.decode("latin-1")
+
+    if not extracted_text.strip():
+        extracted_text = f"Sample text content extracted from {filename}."
+
+    doc = Document(
+        id=doc_id,
+        company=company.strip(),
+        doc_type=doc_type.strip(),
+        reporting_period=reporting_period.strip(),
+        publication_date=pub_date,
+        page=1,
+        text=extracted_text.strip(),
+        source_url=f"Local Upload: {filename}",
+    )
+    active_corpus._documents[doc.id] = doc
+
+    return {
+        "status": "success",
+        "message": f"File '{filename}' successfully ingested as document ID '{doc.id}'.",
+        "doc": doc.model_dump(mode="json"),
+    }
+
+
+def execute_evaluation(case: EvaluationCase, use_llm: bool = False) -> Dict[str, Any]:
     ev = evaluator_llm if use_llm else evaluator_deterministic
-    reports = ev.run_both_modes()
-    _latest_reports_cache = reports
+    ev.corpus = active_corpus
+    ev.retriever.corpus = active_corpus
+
+    reports = ev.run_both_modes(case=case)
     return {
         "engine": "llm" if (use_llm and ev.llm_adapter.is_available) else "deterministic",
-        "case": get_default_case().model_dump(mode="json"),
+        "case": case.model_dump(mode="json"),
         "correct_mode": reports["correct_mode"].model_dump(mode="json"),
         "broken_mode": reports["broken_mode"].model_dump(mode="json"),
     }
 
 
-@app.get("/health")
-def health_check() -> Dict[str, str]:
-    return {"status": "ok", "service": "PeriodGuard Evaluation Harness"}
+@app.post("/api/evaluate/custom")
+def evaluate_custom(req: CustomEvaluationRequest) -> Dict[str, Any]:
+    try:
+        cutoff = datetime.strptime(req.as_of_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid as_of_date format. Use YYYY-MM-DD.")
+
+    case = EvaluationCase(
+        id="custom_case_" + datetime.now().strftime("%Y%m%d%H%M%S"),
+        company=req.company.strip(),
+        question=req.question.strip(),
+        as_of_date=cutoff,
+        as_of_reporting_period=req.as_of_reporting_period.strip(),
+        expected_metric=req.expected_metric,
+        expected_unit=req.expected_unit,
+    )
+    return execute_evaluation(case, use_llm=req.use_llm)
 
 
 @app.post("/evaluate")
-def run_evaluate_api(use_llm: bool = Query(False)) -> Dict[str, Any]:
-    return get_evaluation_data(use_llm=use_llm)
+def evaluate_default(use_llm: bool = Query(False)) -> Dict[str, Any]:
+    return execute_evaluation(get_default_case(), use_llm=use_llm)
 
 
 @app.get("/report")
-def get_report_api(use_llm: bool = Query(False)) -> Dict[str, Any]:
-    return get_evaluation_data(use_llm=use_llm)
+def get_default_report(use_llm: bool = Query(False)) -> Dict[str, Any]:
+    return execute_evaluation(get_default_case(), use_llm=use_llm)
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -63,38 +269,36 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PeriodGuard • Financial Research Reliability & Citation Leakage Harness</title>
+  <title>PeriodGuard • Financial Research Reliability & Citation Leakage Workbench</title>
   
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 
   <style>
     :root {
-      --bg-base: #07090e;
-      --bg-surface: #0e131f;
-      --bg-surface-elevated: #141c2e;
-      --bg-surface-hover: #1b263d;
-      --border-subtle: rgba(255, 255, 255, 0.07);
-      --border-strong: rgba(255, 255, 255, 0.14);
+      --bg-base: #06090f;
+      --bg-surface: #0c121e;
+      --bg-surface-elevated: #121a2c;
+      --bg-surface-hover: #19243d;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
       --border-accent: rgba(99, 102, 241, 0.35);
 
       --text-primary: #f8fafc;
       --text-secondary: #94a3b8;
       --text-muted: #64748b;
-      --text-dim: #475569;
 
       --emerald-accent: #10b981;
-      --emerald-glow: rgba(16, 185, 129, 0.16);
+      --emerald-glow: rgba(16, 185, 129, 0.18);
       --emerald-border: rgba(16, 185, 129, 0.35);
-      --emerald-badge-bg: rgba(6, 78, 59, 0.45);
+      --emerald-badge-bg: rgba(6, 78, 59, 0.5);
       --emerald-badge-text: #34d399;
 
       --rose-accent: #f43f5e;
-      --rose-glow: rgba(244, 63, 94, 0.16);
+      --rose-glow: rgba(244, 63, 94, 0.18);
       --rose-border: rgba(244, 63, 94, 0.38);
-      --rose-badge-bg: rgba(136, 19, 55, 0.45);
+      --rose-badge-bg: rgba(136, 19, 55, 0.5);
       --rose-badge-text: #fb7185;
 
       --indigo-accent: #6366f1;
@@ -104,18 +308,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       --radius-sm: 8px;
       --radius-md: 12px;
       --radius-lg: 18px;
-      --radius-full: 9999px;
 
-      --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-      --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
     }
 
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: var(--font-body);
@@ -124,15 +323,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       min-height: 100vh;
       line-height: 1.55;
       background-image: 
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.12), transparent),
-        radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.05), transparent),
-        radial-gradient(circle at 90% 80%, rgba(244, 63, 94, 0.04), transparent);
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.14), transparent),
+        radial-gradient(circle at 15% 25%, rgba(6, 182, 212, 0.06), transparent),
+        radial-gradient(circle at 85% 75%, rgba(244, 63, 94, 0.05), transparent);
       background-attachment: fixed;
-      padding: 2.5rem 1.5rem 4rem;
+      padding: 2rem 1.5rem 4rem;
     }
 
     .app-container {
-      max-width: 1320px;
+      max-width: 1340px;
       margin: 0 auto;
     }
 
@@ -141,8 +340,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2rem;
-      padding-bottom: 1.75rem;
+      margin-bottom: 1.75rem;
+      padding-bottom: 1.5rem;
       border-bottom: 1px solid var(--border-subtle);
       flex-wrap: wrap;
       gap: 1.25rem;
@@ -189,18 +388,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       gap: 0.6rem;
     }
 
-    .version-tag {
-      font-size: 0.7rem;
-      font-family: var(--font-mono);
-      font-weight: 600;
-      background: rgba(99, 102, 241, 0.18);
-      color: #a5b4fc;
-      border: 1px solid rgba(99, 102, 241, 0.35);
-      padding: 0.2rem 0.5rem;
-      border-radius: var(--radius-full);
-      -webkit-text-fill-color: #a5b4fc;
-    }
-
     .brand-text p {
       font-size: 0.88rem;
       color: var(--text-secondary);
@@ -210,48 +397,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 0.9rem;
-    }
-
-    .engine-toggle-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      padding: 0.45rem 0.85rem;
-      border-radius: var(--radius-full);
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--text-secondary);
-      box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
-    }
-
-    .engine-indicator-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--cyan-accent);
-      box-shadow: 0 0 10px var(--cyan-accent);
-      animation: pulse-dot 2s infinite ease-in-out;
-    }
-
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.8); }
+      gap: 0.75rem;
+      flex-wrap: wrap;
     }
 
     .btn {
       font-family: var(--font-body);
       font-weight: 600;
-      font-size: 0.88rem;
-      padding: 0.6rem 1.2rem;
+      font-size: 0.86rem;
+      padding: 0.55rem 1.15rem;
       border-radius: var(--radius-md);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.2s ease;
       border: 1px solid transparent;
       text-decoration: none;
     }
@@ -279,110 +439,108 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 255, 255, 0.25);
     }
 
-    /* Target Case Hero Card */
-    .case-hero {
-      background: linear-gradient(145deg, rgba(20, 28, 46, 0.8) 0%, rgba(14, 19, 31, 0.95) 100%);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-lg);
-      padding: 1.75rem 2rem;
-      margin-bottom: 2.25rem;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .case-hero::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, #6366f1, #06b6d4, #10b981);
-    }
-
-    .case-header-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.75rem;
-    }
-
-    .case-eyebrow {
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--cyan-accent);
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .case-question-text {
-      font-family: var(--font-display);
-      font-size: 1.35rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: #ffffff;
-      line-height: 1.45;
-      margin-bottom: 1.35rem;
-    }
-
-    .case-chips-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-    }
-
-    .meta-chip {
-      background: rgba(0, 0, 0, 0.35);
+    /* Workbench Controls Banner */
+    .workbench-panel {
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
-      padding: 0.45rem 0.85rem;
-      border-radius: var(--radius-md);
-      font-size: 0.82rem;
-      color: var(--text-secondary);
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
 
-    .meta-chip strong {
-      color: var(--text-primary);
-      font-weight: 600;
-    }
-
-    .meta-chip.highlight-date {
-      border-color: rgba(6, 182, 212, 0.35);
-      background: rgba(6, 182, 212, 0.08);
-    }
-    .meta-chip.highlight-date strong {
-      color: #38bdf8;
-      font-family: var(--font-mono);
-    }
-
-    /* Section Banner Axiom */
-    .axiom-banner {
+    .panel-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1.25rem;
-      padding: 0 0.5rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
     }
 
-    .axiom-banner h2 {
+    .panel-title {
       font-family: var(--font-display);
-      font-size: 1.25rem;
+      font-size: 1.1rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
-    .axiom-quote {
-      font-size: 0.84rem;
-      font-style: italic;
-      color: var(--text-muted);
+    .preset-pill-group {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .preset-btn {
       font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 0.3rem 0.65rem;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .preset-btn:hover, .preset-btn.active {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: var(--indigo-accent);
+      color: #ffffff;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr auto;
+      gap: 1rem;
+      align-items: flex-end;
+    }
+
+    @media (max-width: 1080px) {
+      .form-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .form-label {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+    }
+
+    .form-input, .form-select {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      color: #ffffff;
+      font-family: var(--font-body);
+      font-size: 0.88rem;
+      padding: 0.55rem 0.8rem;
+      transition: border 0.15s ease;
+      width: 100%;
+    }
+
+    .form-input:focus, .form-select:focus {
+      outline: none;
+      border-color: var(--cyan-accent);
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
     }
 
     /* Side-by-Side Dual Comparison Grid */
@@ -439,7 +597,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       margin-top: 0.2rem;
     }
 
-    /* Badges */
     .status-badge {
       font-family: var(--font-mono);
       font-size: 0.88rem;
@@ -472,7 +629,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--text-dim);
+      color: var(--text-muted);
       margin-bottom: 0.6rem;
     }
 
@@ -494,11 +651,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       padding: 0.4rem 0.5rem;
       border-radius: var(--radius-sm);
       font-size: 0.84rem;
-      transition: background 0.15s ease;
-    }
-
-    .check-item:hover {
-      background: rgba(255, 255, 255, 0.03);
     }
 
     .check-title {
@@ -579,7 +731,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       gap: 0.4rem;
     }
 
-    /* Synthesized Claims & Citations */
+    /* Claims & Citations */
     .claims-stack {
       display: flex;
       flex-direction: column;
@@ -624,11 +776,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    .attr-tag b {
-      color: #ffffff;
-    }
+    .attr-tag b { color: #ffffff; }
 
-    /* Interactive Citation Box Button */
     .citation-btn {
       width: 100%;
       text-align: left;
@@ -665,33 +814,62 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       line-height: 1.4;
     }
 
-    /* Slide-over Citation Inspector Drawer */
-    .drawer-backdrop {
+    /* Modal / Drawer */
+    .modal-backdrop, .drawer-backdrop {
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(3, 7, 18, 0.7);
-      backdrop-filter: blur(4px);
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(3, 7, 18, 0.75);
+      backdrop-filter: blur(5px);
       z-index: 998;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.25s ease;
     }
 
-    .drawer-backdrop.active {
+    .modal-backdrop.active, .drawer-backdrop.active {
       opacity: 1;
       pointer-events: auto;
     }
 
+    .modal-dialog {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      width: 90%; max-width: 620px;
+      background: #0d121f;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      z-index: 999;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-dialog.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .modal-header h3 {
+      font-family: var(--font-display);
+      font-size: 1.3rem;
+      font-weight: 700;
+    }
+
     .inspector-drawer {
       position: fixed;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      width: 100%;
-      max-width: 520px;
+      top: 0; right: 0; bottom: 0;
+      width: 100%; max-width: 520px;
       background: #0d121f;
       border-left: 1px solid var(--border-strong);
       z-index: 999;
@@ -702,9 +880,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       flex-direction: column;
     }
 
-    .inspector-drawer.active {
-      transform: translateX(0);
-    }
+    .inspector-drawer.active { transform: translateX(0); }
 
     .drawer-top-bar {
       display: flex;
@@ -720,7 +896,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-weight: 700;
     }
 
-    .btn-close-drawer {
+    .btn-close {
       background: none;
       border: 1px solid var(--border-subtle);
       color: var(--text-secondary);
@@ -735,7 +911,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       transition: all 0.15s ease;
     }
 
-    .btn-close-drawer:hover {
+    .btn-close:hover {
       background: rgba(255, 255, 255, 0.08);
       color: white;
     }
@@ -794,45 +970,28 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .timeline-nodes::before {
       content: '';
       position: absolute;
-      left: 4px;
-      top: 6px;
-      bottom: 6px;
+      left: 4px; top: 6px; bottom: 6px;
       width: 2px;
       background: var(--border-strong);
     }
 
-    .t-node {
-      position: relative;
-      font-size: 0.82rem;
-    }
-
+    .t-node { position: relative; font-size: 0.82rem; }
     .t-node::after {
       content: '';
       position: absolute;
-      left: -1.2rem;
-      top: 4px;
-      width: 10px;
-      height: 10px;
+      left: -1.2rem; top: 4px;
+      width: 10px; height: 10px;
       border-radius: 50%;
       background: var(--cyan-accent);
       box-shadow: 0 0 8px var(--cyan-accent);
     }
-
     .t-node.future::after {
       background: var(--rose-accent);
       box-shadow: 0 0 10px var(--rose-accent);
     }
 
-    .t-node-title {
-      font-weight: 600;
-      color: #ffffff;
-    }
-
-    .t-node-desc {
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-    }
+    .t-node-title { font-weight: 600; color: #ffffff; }
+    .t-node-desc { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); }
 
     .verbatim-box {
       background: #070a12;
@@ -845,21 +1004,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-style: italic;
     }
 
-    /* Footer */
     footer {
       border-top: 1px solid var(--border-subtle);
       padding-top: 2rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      color: var(--text-dim);
+      color: var(--text-muted);
       font-size: 0.82rem;
       flex-wrap: wrap;
       gap: 1rem;
-    }
-
-    footer span strong {
-      color: var(--text-muted);
     }
   </style>
 </head>
@@ -873,57 +1027,132 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
         </div>
         <div class="brand-text">
-          <h1>PeriodGuard <span class="version-tag">MVP 1.0</span></h1>
-          <p>Financial Research Reliability & Future-Period Citation Leakage Harness</p>
+          <h1>PeriodGuard <span style="font-size: 0.7rem; font-family: var(--font-mono); background: rgba(99,102,241,0.2); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.4); padding: 0.2rem 0.5rem; border-radius: 9999px; -webkit-text-fill-color: #a5b4fc;">WORKBENCH</span></h1>
+          <p>Financial Research Reliability & Future-Period Citation Leakage Testing Harness</p>
         </div>
       </div>
       <div class="header-actions">
-        <div class="engine-toggle-badge">
-          <span class="engine-indicator-dot"></span>
-          <span id="engineLabel">Engine: Deterministic Fixture</span>
-        </div>
-        <button id="btnRerun" class="btn btn-primary" onclick="triggerEvaluation()">
-          ⚡ Re-run Evaluation
+        <button class="btn btn-secondary" onclick="openCorpusModal()">
+          📚 Manage Corpus (<span id="corpusCountBadge">4</span> docs)
+        </button>
+        <button class="btn btn-secondary" onclick="openUploadModal()">
+          📄 Ingest PDF / Doc
+        </button>
+        <button id="btnRunEval" class="btn btn-primary" onclick="runWorkbenchEvaluation()">
+          ⚡ Run Evaluation
         </button>
       </div>
     </header>
 
-    <!-- Case Hero Banner -->
-    <section class="case-hero">
-      <div class="case-header-row">
-        <div class="case-eyebrow">
-          <span>🎯</span> Target Evaluation Case (Default Fixture)
+    <!-- Interactive Workbench Parameters -->
+    <section class="workbench-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🛠️</span> Evaluation Case Parameters
+        </div>
+        <div class="preset-pill-group">
+          <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center; margin-right: 0.2rem;">Quick Presets:</span>
+          <button class="preset-btn active" onclick="loadPreset('future_leak_default')">Future Leak Trap</button>
+          <button class="preset-btn" onclick="loadPreset('clean_historical_pass')">Safe Historical</button>
+          <button class="preset-btn" onclick="loadPreset('strict_early_cutoff')">Strict Pre-Release</button>
         </div>
       </div>
-      <div class="case-question-text" id="caseQuestion">
-        Loading target evaluation case...
-      </div>
-      <div class="case-chips-grid">
-        <div class="meta-chip"><span>🏢 Target Entity:</span> <strong id="caseCompany">—</strong></div>
-        <div class="meta-chip highlight-date"><span>📅 As-Of Boundary:</span> <strong id="caseAsOfDate">—</strong></div>
-        <div class="meta-chip"><span>📊 Target Period:</span> <strong id="casePeriod">—</strong></div>
-        <div class="meta-chip"><span>📈 Expected Metric:</span> <strong id="caseMetric">—</strong></div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Research Question</label>
+          <input type="text" id="inputQuestion" class="form-input" value="As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target Entity</label>
+          <input type="text" id="inputCompany" class="form-input" value="Acme Industries">
+        </div>
+        <div class="form-group">
+          <label class="form-label">As-Of Cutoff Date</label>
+          <input type="date" id="inputAsOfDate" class="form-input" value="2025-05-15">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reporting Period</label>
+          <input type="text" id="inputPeriod" class="form-input" value="Q4 FY25">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Engine</label>
+          <select id="selectEngine" class="form-select">
+            <option value="deterministic">Deterministic</option>
+            <option value="llm">Live LLM</option>
+          </select>
+        </div>
       </div>
     </section>
 
-    <!-- Axiom Banner -->
-    <div class="axiom-banner">
-      <h2>Retrieval Mode Comparison</h2>
-      <span class="axiom-quote">"A citation exists" ≠ "The cited answer is safe to use"</span>
-    </div>
-
     <!-- Side-by-Side Dual Comparison Grid -->
     <main class="comparison-grid" id="comparisonGrid">
-      <!-- Correct Mode Card (Injected via JS) -->
-      <!-- Broken Mode Card (Injected via JS) -->
+      <!-- Dynamic rendering via JS -->
     </main>
 
     <!-- Footer -->
     <footer>
-      <span><strong>PeriodGuard MVP</strong> • Evaluates temporal safety, entity boundaries, and citation traceability.</span>
-      <span>Reference reliability test harness</span>
+      <span><strong>PeriodGuard</strong> • Interactive reliability test bench for financial research pipelines.</span>
+      <span>Reference Implementation • Evaluates temporal safety & citation traceability</span>
     </footer>
 
+  </div>
+
+  <!-- Document Corpus Modal -->
+  <div class="modal-backdrop" id="corpusModalBackdrop" onclick="closeCorpusModal()"></div>
+  <div class="modal-dialog" id="corpusModal" style="max-width: 780px;">
+    <div class="modal-header">
+      <h3>Active Document Corpus (<span id="corpusListCount">4</span>)</h3>
+      <button class="btn-close" onclick="closeCorpusModal()">×</button>
+    </div>
+    <div style="max-height: 400px; overflow-y: auto; margin-bottom: 1.5rem;" id="corpusTableContainer">
+      <!-- Populated via JS -->
+    </div>
+    <div style="display: flex; justify-content: space-between;">
+      <button class="btn btn-secondary" onclick="resetCorpusToDefault()">🔄 Reset to Default Fixture</button>
+      <button class="btn btn-primary" onclick="closeCorpusModal()">Done</button>
+    </div>
+  </div>
+
+  <!-- Ingest PDF / Document Modal -->
+  <div class="modal-backdrop" id="uploadModalBackdrop" onclick="closeUploadModal()"></div>
+  <div class="modal-dialog" id="uploadModal">
+    <div class="modal-header">
+      <h3>Ingest Financial Document / PDF</h3>
+      <button class="btn-close" onclick="closeUploadModal()">×</button>
+    </div>
+    <form id="uploadForm" onsubmit="handleDocumentUpload(event)">
+      <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="form-group">
+          <label class="form-label">Select File (.pdf, .txt, .json)</label>
+          <input type="file" id="uploadFile" class="form-input" required accept=".pdf,.txt,.json">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label">Company Name</label>
+            <input type="text" id="uploadCompany" class="form-input" value="Acme Industries" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Document Type</label>
+            <input type="text" id="uploadDocType" class="form-input" value="Quarterly Results" required>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label">Publication Date</label>
+            <input type="date" id="uploadPubDate" class="form-input" value="2025-05-10" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reporting Period</label>
+            <input type="text" id="uploadPeriod" class="form-input" value="Q4 FY25" required>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+        <button type="submit" id="btnUploadSubmit" class="btn btn-primary">Ingest Document</button>
+      </div>
+    </form>
   </div>
 
   <!-- Slide-over Citation Inspector Drawer -->
@@ -931,17 +1160,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <aside class="inspector-drawer" id="inspectorDrawer">
     <div class="drawer-top-bar">
       <div>
-        <div class="section-label" style="margin-bottom: 0.2rem;">Provenance Inspector</div>
+        <div class="section-label" style="margin-bottom: 0.2rem;">Evidence Inspector</div>
         <h3 id="drawerDocId">Document Metadata</h3>
       </div>
-      <button class="btn-close-drawer" onclick="closeDrawer()">×</button>
+      <button class="btn-close" onclick="closeDrawer()">×</button>
     </div>
-    <div class="drawer-body" id="drawerBody">
-      <!-- Content populated dynamically -->
-    </div>
+    <div class="drawer-body" id="drawerBody"></div>
   </aside>
 
-  <!-- Initial State Injection -->
   <script id="initData" type="application/json">__INITIAL_DATA__</script>
 
   <script>
@@ -956,41 +1182,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 
     function renderDashboard(data) {
-      // 1. Populate Case Hero
-      const c = data.case;
-      document.getElementById('caseQuestion').textContent = `"${c.question}"`;
-      document.getElementById('caseCompany').textContent = c.company;
-      document.getElementById('caseAsOfDate').textContent = c.as_of_date;
-      document.getElementById('casePeriod').textContent = c.as_of_reporting_period;
-      document.getElementById('caseMetric').textContent = `${c.expected_metric} (${c.expected_unit})`;
-      document.getElementById('engineLabel').textContent = `Engine: ${data.engine === 'llm' ? 'Live LLM Adapter' : 'Deterministic Fixture'}`;
-
-      // 2. Render Cards
       const grid = document.getElementById('comparisonGrid');
       grid.innerHTML = `
         ${renderModeCard(data.correct_mode, false, data)}
         ${renderModeCard(data.broken_mode, true, data)}
       `;
+      updateCorpusCount();
     }
 
     function renderModeCard(report, isBroken, data) {
       const isPass = report.status === 'PASS';
       const cardClass = isBroken ? 'broken-card' : 'correct-card';
       const title = isBroken ? 'Unfiltered Mode (Broken)' : 'Date-Filtered Mode';
-      const subtitle = isBroken ? 'Disables temporal filter · allows future leaks' : 'Enforces as-of date (2025-05-15)';
+      const subtitle = isBroken ? 'Disables temporal filter · admits future evidence' : `Enforces as-of date (${data.case.as_of_date})`;
       const badgeClass = isPass ? 'pass' : 'fail';
       const badgeText = isPass ? '✓ PASS' : '✗ FAIL';
 
-      // Checks list
       const checksHtml = Object.entries(report.checks).map(([key, val]) => `
         <div class="check-item">
           <span class="check-title">${checkLabels[key] || key}</span>
@@ -998,13 +1209,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
       `).join('');
 
-      // Diagnosis / Failure Alert
       let alertHtml = '';
       if (!isBroken || report.failures.length === 0) {
         alertHtml = `
           <div class="pass-diagnosis-box">
             <span>✓</span>
-            <div>No temporal leakage detected. Future documents strictly gated by publication date.</div>
+            <div>No temporal leakage detected. Future documents strictly excluded by publication date gate.</div>
           </div>
         `;
       } else {
@@ -1022,7 +1232,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         `;
       }
 
-      // Claims & Citations
       const claimsHtml = report.claims.map(claim => {
         const citationsHtml = claim.citations.map(cit => {
           const doc = report.retrieved_documents.find(d => d.id === cit.document_id) || {};
@@ -1074,24 +1283,71 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           </div>
 
           <div>
-            <div class="section-label">Synthesized Claims & Traceable Citations</div>
+            <div class="section-label">Synthesized Claims & Citations</div>
             <div class="claims-stack">${claimsHtml}</div>
           </div>
         </div>
       `;
     }
 
+    async function runWorkbenchEvaluation() {
+      const btn = document.getElementById('btnRunEval');
+      btn.disabled = true;
+      btn.innerHTML = '⚡ Running...';
+
+      const payload = {
+        question: document.getElementById('inputQuestion').value,
+        company: document.getElementById('inputCompany').value,
+        as_of_date: document.getElementById('inputAsOfDate').value,
+        as_of_reporting_period: document.getElementById('inputPeriod').value,
+        use_llm: document.getElementById('selectEngine').value === 'llm'
+      };
+
+      try {
+        const resp = await fetch('/api/evaluate/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+          appState = await resp.json();
+          renderDashboard(appState);
+        }
+      } catch (err) {
+        console.error('Evaluation failed', err);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '⚡ Run Evaluation';
+      }
+    }
+
+    function loadPreset(presetId) {
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+
+      if (presetId === 'future_leak_default') {
+        document.getElementById('inputQuestion').value = "As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.";
+        document.getElementById('inputCompany').value = "Acme Industries";
+        document.getElementById('inputAsOfDate').value = "2025-05-15";
+        document.getElementById('inputPeriod').value = "Q4 FY25";
+      } else if (presetId === 'clean_historical_pass') {
+        document.getElementById('inputQuestion').value = "What was Acme Industries' sequential EBITDA margin change in Q4 FY25?";
+        document.getElementById('inputCompany').value = "Acme Industries";
+        document.getElementById('inputAsOfDate').value = "2025-06-01";
+        document.getElementById('inputPeriod').value = "Q4 FY25";
+      } else if (presetId === 'strict_early_cutoff') {
+        document.getElementById('inputQuestion').value = "What management commentary was provided regarding Q4 FY25 EBITDA margin expansion?";
+        document.getElementById('inputCompany').value = "Acme Industries";
+        document.getElementById('inputAsOfDate').value = "2025-05-11";
+        document.getElementById('inputPeriod').value = "Q4 FY25";
+      }
+      runWorkbenchEvaluation();
+    }
+
     function openInspector(docId, quotedText) {
       const allDocs = appState.correct_mode.retrieved_documents.concat(appState.broken_mode.retrieved_documents);
       const doc = allDocs.find(d => d.id === docId) || {
-        id: docId,
-        company: 'Acme Industries',
-        doc_type: 'Financial Document',
-        reporting_period: 'Q4 FY25',
-        publication_date: '2025-05-10',
-        page: 1,
-        text: quotedText,
-        source_url: 'https://example.com'
+        id: docId, company: 'Acme Industries', doc_type: 'Financial Document', reporting_period: 'Q4 FY25', publication_date: '2025-05-10', page: 1, text: quotedText, source_url: 'Corpus'
       };
 
       const asOf = appState.case.as_of_date;
@@ -1107,7 +1363,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <tr><td>Publication Date</td><td style="font-family: var(--font-mono); color: ${isFuture ? '#fb7185' : '#34d399'};">${escapeHtml(doc.publication_date)}</td></tr>
             <tr><td>Reporting Period</td><td>${escapeHtml(doc.reporting_period)}</td></tr>
             <tr><td>Section Page</td><td>Page ${doc.page}</td></tr>
-            <tr><td>Provenance</td><td style="font-size: 0.75rem; word-break: break-all;"><a href="${escapeHtml(doc.source_url)}" target="_blank" style="color: #93c5fd;">${escapeHtml(doc.source_url)}</a></td></tr>
+            <tr><td>Provenance</td><td style="font-size: 0.75rem; word-break: break-all;">${escapeHtml(doc.source_url)}</td></tr>
           </table>
         </div>
 
@@ -1140,25 +1396,109 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('drawerBackdrop').classList.remove('active');
     }
 
-    async function triggerEvaluation() {
-      const btn = document.getElementById('btnRerun');
-      btn.disabled = true;
-      btn.innerHTML = '⚡ Running...';
+    async function updateCorpusCount() {
       try {
-        const resp = await fetch('/evaluate', { method: 'POST' });
+        const resp = await fetch('/api/corpus');
         if (resp.ok) {
-          appState = await resp.json();
-          renderDashboard(appState);
+          const docs = await resp.json();
+          document.getElementById('corpusCountBadge').textContent = docs.length;
+          document.getElementById('corpusListCount').textContent = docs.length;
         }
-      } catch (err) {
-        console.error('Failed to rerun evaluation', err);
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '⚡ Re-run Evaluation';
+      } catch (e) {}
+    }
+
+    async function openCorpusModal() {
+      document.getElementById('corpusModal').classList.add('active');
+      document.getElementById('corpusModalBackdrop').classList.add('active');
+
+      const resp = await fetch('/api/corpus');
+      if (resp.ok) {
+        const docs = await resp.json();
+        const container = document.getElementById('corpusTableContainer');
+        container.innerHTML = `
+          <table class="doc-meta-table">
+            <thead>
+              <tr style="background: rgba(255,255,255,0.04); text-align: left; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted);">
+                <th style="padding: 0.6rem 0.9rem;">ID</th>
+                <th style="padding: 0.6rem 0.9rem;">Company</th>
+                <th style="padding: 0.6rem 0.9rem;">Period</th>
+                <th style="padding: 0.6rem 0.9rem;">Published</th>
+                <th style="padding: 0.6rem 0.9rem;">Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${docs.map(d => `
+                <tr>
+                  <td style="font-family: var(--font-mono); color: #93c5fd;">${escapeHtml(d.id)}</td>
+                  <td>${escapeHtml(d.company)}</td>
+                  <td>${escapeHtml(d.reporting_period)}</td>
+                  <td style="font-family: var(--font-mono);">${escapeHtml(d.publication_date)}</td>
+                  <td style="font-size: 0.76rem; color: var(--text-secondary);">${escapeHtml(d.doc_type)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
       }
     }
 
-    // Initial render
+    function closeCorpusModal() {
+      document.getElementById('corpusModal').classList.remove('active');
+      document.getElementById('corpusModalBackdrop').classList.remove('active');
+    }
+
+    async function resetCorpusToDefault() {
+      if (confirm('Reset corpus to original 4 financial records?')) {
+        await fetch('/api/corpus/reset', { method: 'POST' });
+        closeCorpusModal();
+        runWorkbenchEvaluation();
+      }
+    }
+
+    function openUploadModal() {
+      document.getElementById('uploadModal').classList.add('active');
+      document.getElementById('uploadModalBackdrop').classList.add('active');
+    }
+
+    function closeUploadModal() {
+      document.getElementById('uploadModal').classList.remove('active');
+      document.getElementById('uploadModalBackdrop').classList.remove('active');
+    }
+
+    async function handleDocumentUpload(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btnUploadSubmit');
+      btn.disabled = true;
+      btn.textContent = 'Ingesting...';
+
+      const formData = new FormData();
+      formData.append('file', document.getElementById('uploadFile').files[0]);
+      formData.append('company', document.getElementById('uploadCompany').value);
+      formData.append('doc_type', document.getElementById('uploadDocType').value);
+      formData.append('reporting_period', document.getElementById('uploadPeriod').value);
+      formData.append('publication_date', document.getElementById('uploadPubDate').value);
+
+      try {
+        const resp = await fetch('/api/corpus/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (resp.ok) {
+          alert('Document successfully ingested into PeriodGuard corpus!');
+          closeUploadModal();
+          runWorkbenchEvaluation();
+        } else {
+          const err = await resp.json();
+          alert('Upload error: ' + (err.detail || 'Failed to upload'));
+        }
+      } catch (err) {
+        alert('Upload failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Ingest Document';
+      }
+    }
+
     renderDashboard(appState);
   </script>
 </body>
@@ -1168,6 +1508,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 @app.get("/", response_class=HTMLResponse)
 def render_dashboard(use_llm: bool = Query(False)) -> str:
-    data = get_evaluation_data(use_llm=use_llm)
+    data = execute_evaluation(get_default_case(), use_llm=use_llm)
     json_str = json.dumps(data).replace("</", "<\\/")
     return DASHBOARD_HTML.replace("__INITIAL_DATA__", json_str)
