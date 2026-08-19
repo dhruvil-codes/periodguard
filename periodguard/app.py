@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage.",
-    version="2.3.0",
+    version="2.4.0",
 )
 
 app.add_middleware(
@@ -256,8 +256,8 @@ def evaluate_custom(req: CustomEvaluationRequest) -> Dict[str, Any]:
         question=req.question.strip(),
         as_of_date=cutoff,
         as_of_reporting_period=req.as_of_reporting_period.strip(),
-        expected_metric="EBITDA margin",
-        expected_unit="bps",
+        expected_metric=None,
+        expected_unit=None,
     )
     return execute_evaluation(case, use_llm=req.use_llm, api_key=req.api_key)
 
@@ -440,6 +440,16 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 255, 255, 0.25);
     }
 
+    .btn-info {
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.35);
+    }
+    .btn-info:hover {
+      background: rgba(99, 102, 241, 0.25);
+      color: white;
+    }
+
     /* 1. Hero / Product Overview Section */
     .hero-section {
       text-align: center;
@@ -598,7 +608,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       background: rgba(99, 102, 241, 0.08);
     }
 
-    /* 3. Step 2: Evaluation Mode Switcher */
+    /* 3. Step 2: Evaluation Mode Tabs */
     .tabs-nav {
       display: flex;
       gap: 0.5rem;
@@ -738,6 +748,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
+      cursor: pointer;
     }
 
     .gate-badge.safe {
@@ -802,6 +813,42 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       margin-bottom: 0.2rem;
+    }
+
+    /* Inline Validation Breakdown Accordion inside message */
+    .validation-breakdown-box {
+      margin-top: 0.85rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 0.8rem;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .check-name {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      color: var(--text-muted);
+    }
+
+    .check-status-pass {
+      color: var(--emerald-500);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 0.72rem;
+    }
+
+    .check-status-fail {
+      color: var(--rose-500);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 0.72rem;
     }
 
     .chat-input-wrapper {
@@ -959,7 +1006,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%) scale(0.96);
-      width: 92%; max-width: 580px;
+      width: 92%; max-width: 620px;
       background: #0d1322;
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
@@ -1071,6 +1118,32 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       color: #cbd5e1;
       font-style: italic;
     }
+
+    /* Guide Modal Styling */
+    .guide-section-box {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .guide-title {
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .guide-text {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -1087,6 +1160,9 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         </div>
       </div>
       <div class="nav-actions">
+        <button class="btn btn-info" onclick="openGuideModal()">
+          ℹ️ What is Temporal Gating?
+        </button>
         <button class="btn btn-secondary" onclick="openCorpusModal()">
           📚 Manage Filings (<span id="corpusCountBadge">4</span>)
         </button>
@@ -1197,9 +1273,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         <div class="chat-container">
           
           <!-- Live Chat Log -->
-          <div class="chat-log" id="chatLog">
-            <!-- Initial Assistant Bubble rendered via JS -->
-          </div>
+          <div class="chat-log" id="chatLog"></div>
 
           <!-- Chat Input Bar -->
           <div class="chat-input-wrapper">
@@ -1280,6 +1354,46 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
     </section>
 
+  </div>
+
+  <!-- Educational Guide Modal: What is Temporal Gating? -->
+  <div class="modal-backdrop" id="guideBackdrop" onclick="closeGuideModal()"></div>
+  <div class="modal-box" id="guideModal">
+    <div class="modal-head">
+      <h3>🛡️ PeriodGuard Reliability Guide</h3>
+      <button class="btn-close" onclick="closeGuideModal()">×</button>
+    </div>
+    <div style="max-height: 400px; overflow-y: auto;">
+      <div class="guide-section-box">
+        <div class="guide-title">⏳ What is "Temporal Gating"?</div>
+        <div class="guide-text">
+          When conducting financial backtesting, audit research, or historical analysis, an analyst asks a question as of a specific point in time (e.g. <em>15 May 2025</em>). 
+          <strong>Temporal Gating</strong> guarantees that the AI only retrieves and cites filings published on or before that exact date (<code>publication_date &le; as_of_date</code>).
+        </div>
+      </div>
+
+      <div class="guide-section-box">
+        <div class="guide-title">🚨 What does "FAILED TEMPORAL GATE" mean?</div>
+        <div class="guide-text">
+          Standard naive RAG does not understand time. It searches by keyword similarity. If an August 2025 report mentions 2025 numbers, standard RAG will cite it for a May 2025 question—<strong>silently leaking future knowledge</strong> into a historical decision. When this happens, PeriodGuard flags a <strong>FUTURE_PERIOD_LEAK</strong>.
+        </div>
+      </div>
+
+      <div class="guide-section-box">
+        <div class="guide-title">🔍 The 4 Reliability Validators</div>
+        <div class="guide-text">
+          <ul style="padding-left: 1.2rem; margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><strong>1. Citation Resolution:</strong> Every claim must link to an actual file and page with verbatim matching text.</li>
+            <li><strong>2. Temporal Consistency:</strong> No document published after the as-of cutoff date can be cited.</li>
+            <li><strong>3. Entity &amp; Period Alignment:</strong> Prevents citations from peer companies or wrong fiscal periods.</li>
+            <li><strong>4. Citation Support Proxy:</strong> Verifies numbers, units (bps, %, $), and causal facts against the cited evidence.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+      <button class="btn btn-primary" onclick="closeGuideModal()">Got It</button>
+    </div>
   </div>
 
   <!-- Document Corpus Modal -->
@@ -1365,10 +1479,21 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       document.getElementById('apiKeyInput').style.display = isLlm ? 'inline-block' : 'none';
     }
 
+    function openGuideModal() {
+      document.getElementById('guideModal').classList.add('active');
+      document.getElementById('guideBackdrop').classList.add('active');
+    }
+
+    function closeGuideModal() {
+      document.getElementById('guideModal').classList.remove('active');
+      document.getElementById('guideBackdrop').classList.remove('active');
+    }
+
     function renderChatMessage(question, reportData) {
       const correct = reportData.correct_mode;
       const broken = reportData.broken_mode;
       const isPass = correct.status === 'PASS';
+      const msgId = 'msg_' + Math.random().toString(36).substr(2, 9);
 
       const citationsHtml = (correct.claims || []).map(claim => {
         return (claim.citations || []).map(cit => {
@@ -1385,14 +1510,26 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         }).join('');
       }).join('');
 
+      const checksHtml = Object.entries(correct.checks || {}).map(([name, status]) => {
+        const passed = status === 'PASS';
+        const label = name.replace(/_/g, ' ').toUpperCase();
+        return `
+          <div class="check-row">
+            <span class="check-name">${label}</span>
+            <span class="${passed ? 'check-status-pass' : 'check-status-fail'}">${passed ? '✓ PASS' : '✗ FAIL'}</span>
+          </div>
+        `;
+      }).join('');
+
       const assistantHtml = `
         <div class="chat-bubble-assistant">
           <div class="assistant-head">
             <div style="font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: #93c5fd; display: flex; align-items: center; gap: 0.4rem;">
               <span>🤖</span> PeriodGuard Verified Research Assistant
             </div>
-            <div class="gate-badge ${isPass ? 'safe' : 'unsafe'}">
+            <div class="gate-badge ${isPass ? 'safe' : 'unsafe'}" onclick="toggleMsgChecks('${msgId}')" title="Click to view 4-validator breakdown">
               ${isPass ? '✓ VERIFIED SAFE (Period-Correct)' : '🚨 FAILED TEMPORAL GATE'}
+              <span style="font-size: 0.65rem; opacity: 0.8; margin-left: 0.2rem;">ℹ️</span>
             </div>
           </div>
           
@@ -1404,6 +1541,18 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
             <div class="citations-section-title">Verified Evidence Citations (Click to inspect source):</div>
             <div class="citations-grid">${citationsHtml}</div>
           ` : ''}
+
+          <div id="${msgId}" class="validation-breakdown-box" style="display: none;">
+            <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem; font-weight: 700;">
+              Reliability Gate Checks Breakdown:
+            </div>
+            ${checksHtml}
+            ${correct.failures && correct.failures.length > 0 ? `
+              <div style="margin-top: 0.45rem; padding: 0.4rem; background: var(--rose-bg); border: 1px solid var(--rose-border); border-radius: 4px; font-size: 0.74rem; color: #fecdd3;">
+                ${correct.failures.map(f => `<div>• ${escapeHtml(f.message)}</div>`).join('')}
+              </div>
+            ` : ''}
+          </div>
         </div>
       `;
 
@@ -1424,6 +1573,13 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       } else {
         document.getElementById('naiveRagSummary').textContent = "Both modes passed for this specific cutoff boundary.";
         document.getElementById('naiveRagFailDetails').textContent = "No temporal leakage triggered.";
+      }
+    }
+
+    function toggleMsgChecks(id) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
       }
     }
 

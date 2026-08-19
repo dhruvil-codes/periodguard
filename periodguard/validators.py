@@ -61,7 +61,7 @@ class CitationResolutionValidator(BaseValidator):
                             document_id=citation.document_id,
                             claim_text=claim.text,
                             citation=citation,
-                            message=f"Cited document ID '{citation.document_id}' does not exist in corpus.",
+                            message=f"Cited document ID '{citation.document_id}' does not exist in the corpus.",
                         )
                     )
                     continue
@@ -73,7 +73,7 @@ class CitationResolutionValidator(BaseValidator):
                             document_id=citation.document_id,
                             claim_text=claim.text,
                             citation=citation,
-                            message=f"Cited document '{citation.document_id}' was not in the retrieved evidence set.",
+                            message=f"Cited document '{citation.document_id}' was not in the retriever's returned set.",
                         )
                     )
 
@@ -84,24 +84,23 @@ class CitationResolutionValidator(BaseValidator):
                             document_id=citation.document_id,
                             claim_text=claim.text,
                             citation=citation,
-                            message=f"Cited page {citation.page} does not match document page {doc.page}.",
+                            message=f"Citation page mismatch for '{doc.id}': cited page {citation.page} vs document page {doc.page}.",
                         )
                     )
 
-                if citation.quoted_text.strip().lower() not in doc.text.lower():
-                    # check normalized whitespace
-                    norm_quote = " ".join(citation.quoted_text.split()).lower()
-                    norm_doc = " ".join(doc.text.split()).lower()
-                    if norm_quote not in norm_doc:
-                        failures.append(
-                            ValidationFailure(
-                                type=FailureType.INVALID_CITATION,
-                                document_id=citation.document_id,
-                                claim_text=claim.text,
-                                citation=citation,
-                                message=f"Quoted text not found in source document '{citation.document_id}'.",
-                            )
+                # Normalize whitespace when checking quote presence
+                normalized_quote = " ".join(citation.quoted_text.split()).lower()
+                normalized_doc = " ".join(doc.text.split()).lower()
+                if normalized_quote not in normalized_doc:
+                    failures.append(
+                        ValidationFailure(
+                            type=FailureType.INVALID_CITATION,
+                            document_id=citation.document_id,
+                            claim_text=claim.text,
+                            citation=citation,
+                            message=f"Quoted text was not found verbatim in document '{doc.id}' page {doc.page}.",
                         )
+                    )
 
         status = ValidationStatus.FAIL if failures else ValidationStatus.PASS
         return status, failures
@@ -125,7 +124,9 @@ class TemporalConsistencyValidator(BaseValidator):
                 if not doc:
                     continue
 
+                # Strict gating rule: publication_date must be <= as_of_date
                 if doc.publication_date > case.as_of_date:
+                    delta_days = (doc.publication_date - case.as_of_date).days
                     failures.append(
                         ValidationFailure(
                             type=FailureType.FUTURE_PERIOD_LEAK,
@@ -135,9 +136,9 @@ class TemporalConsistencyValidator(BaseValidator):
                             claim_text=claim.text,
                             citation=citation,
                             message=(
-                                f"Future-period citation leak: Document '{doc.id}' was published on "
-                                f"{doc.publication_date.isoformat()}, which violates the as-of boundary "
-                                f"({case.as_of_date.isoformat()})."
+                                f"Future-period leakage detected: Document '{doc.id}' was published on "
+                                f"{doc.publication_date.isoformat()} (+{delta_days} days after the as-of cutoff "
+                                f"{case.as_of_date.isoformat()})."
                             ),
                         )
                     )
@@ -161,7 +162,6 @@ class EntityPeriodConsistencyValidator(BaseValidator):
         for claim in claims:
             # Check period in claim if specified
             if claim.period:
-                # If claim period points to a future fiscal year like FY26 when case is FY25
                 if "fy26" in claim.period.lower() and "fy25" in case.as_of_reporting_period.lower():
                     failures.append(
                         ValidationFailure(
@@ -202,8 +202,8 @@ class CitationSupportProxyValidator(BaseValidator):
         case: EvaluationCase,
     ) -> Tuple[ValidationStatus, List[ValidationFailure]]:
         """
-        Transparent rule-based proxy for citation support:
-        Checks metric token presence, numerical value presence, unit presence, and directional consistency.
+        Rule-based proxy for citation support:
+        Checks numeric value presence, metric phrase support, unit presence, and directional consistency.
         """
         failures: List[ValidationFailure] = []
 
@@ -215,7 +215,6 @@ class CitationSupportProxyValidator(BaseValidator):
 
                 # 1. Numeric value check
                 if claim.value is not None:
-                    # check integer representation (40) or float (40.0) or string in quote
                     val_str_int = str(int(claim.value)) if claim.value.is_integer() else str(claim.value)
                     val_str_float = f"{claim.value:.1f}"
                     if val_str_int not in quote and val_str_float not in quote and val_str_int not in doc_text:
@@ -229,8 +228,9 @@ class CitationSupportProxyValidator(BaseValidator):
                             )
                         )
 
-                # 2. Metric phrase check
-                if claim.metric:
+                # 2. Metric phrase check (skip for qualitative/overview metrics)
+                qualitative_metrics = {"business operations", "document evidence", "document summary", "overview", "operational drivers"}
+                if claim.metric and claim.metric.lower() not in qualitative_metrics:
                     metric_tokens = [t for t in re.findall(r"\b[a-zA-Z0-9]+\b", claim.metric.lower()) if len(t) > 2]
                     matched = any(t in quote or t in doc_text for t in metric_tokens)
                     if not matched:
@@ -247,8 +247,17 @@ class CitationSupportProxyValidator(BaseValidator):
                 # 3. Unit check
                 if claim.unit:
                     unit_clean = claim.unit.lower().strip()
-                    # Handle common equivalents like "bps" or "%" or "usd"
-                    if unit_clean not in quote and unit_clean not in doc_text:
+                    unit_supported = False
+                    if "usd" in unit_clean or "$" in unit_clean or "dollar" in unit_clean:
+                        unit_supported = "$" in quote or "dollar" in quote or "usd" in quote or "$" in doc_text
+                    elif unit_clean == "%":
+                        unit_supported = "%" in quote or "percent" in quote or "%" in doc_text
+                    elif unit_clean == "bps":
+                        unit_supported = "bps" in quote or "basis points" in quote or "bps" in doc_text
+                    else:
+                        unit_supported = unit_clean in quote or unit_clean in doc_text
+
+                    if not unit_supported:
                         failures.append(
                             ValidationFailure(
                                 type=FailureType.UNSUPPORTED_CLAIM,
