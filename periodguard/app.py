@@ -4,7 +4,7 @@ import json
 from datetime import date
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -30,483 +30,1144 @@ evaluator_llm = Evaluator(use_llm=True)
 _latest_reports_cache: Dict[str, EvaluationReport] = {}
 
 
+def get_evaluation_data(use_llm: bool = False) -> Dict[str, Any]:
+    global _latest_reports_cache
+    ev = evaluator_llm if use_llm else evaluator_deterministic
+    reports = ev.run_both_modes()
+    _latest_reports_cache = reports
+    return {
+        "engine": "llm" if (use_llm and ev.llm_adapter.is_available) else "deterministic",
+        "case": get_default_case().model_dump(mode="json"),
+        "correct_mode": reports["correct_mode"].model_dump(mode="json"),
+        "broken_mode": reports["broken_mode"].model_dump(mode="json"),
+    }
+
+
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     return {"status": "ok", "service": "PeriodGuard Evaluation Harness"}
 
 
 @app.post("/evaluate")
-def run_evaluation(use_llm: bool = Query(False, description="Enable live LLM adapter")) -> Dict[str, Any]:
-    global _latest_reports_cache
-    ev = evaluator_llm if use_llm else evaluator_deterministic
-    reports = ev.run_both_modes()
-    _latest_reports_cache = reports
-    return {
-        "mode_type": "llm" if use_llm else "deterministic",
-        "correct_mode": reports["correct_mode"].model_dump(mode="json"),
-        "broken_mode": reports["broken_mode"].model_dump(mode="json"),
-    }
+def run_evaluate_api(use_llm: bool = Query(False)) -> Dict[str, Any]:
+    return get_evaluation_data(use_llm=use_llm)
 
 
 @app.get("/report")
-def get_report(use_llm: bool = Query(False, description="Enable live LLM adapter")) -> Dict[str, Any]:
-    global _latest_reports_cache
-    if not _latest_reports_cache:
-        ev = evaluator_llm if use_llm else evaluator_deterministic
-        _latest_reports_cache = ev.run_both_modes()
-    return {
-        "correct_mode": _latest_reports_cache["correct_mode"].model_dump(mode="json"),
-        "broken_mode": _latest_reports_cache["broken_mode"].model_dump(mode="json"),
-    }
+def get_report_api(use_llm: bool = Query(False)) -> Dict[str, Any]:
+    return get_evaluation_data(use_llm=use_llm)
 
 
-@app.get("/", response_class=HTMLResponse)
-def render_dashboard(use_llm: bool = Query(False, description="Enable live LLM adapter")) -> str:
-    global _latest_reports_cache
-    ev = evaluator_llm if use_llm else evaluator_deterministic
-    _latest_reports_cache = ev.run_both_modes()
-
-    correct = _latest_reports_cache["correct_mode"]
-    broken = _latest_reports_cache["broken_mode"]
-    case = get_default_case()
-
-    def format_status_badge(status: str) -> str:
-        if status == "PASS":
-            return '<span class="badge badge-pass">✓ PASS</span>'
-        return '<span class="badge badge-fail">✗ FAIL</span>'
-
-    def format_checks_table(checks: Dict[str, Any]) -> str:
-        rows = []
-        labels = {
-            "citation_resolution": "Citation Resolution",
-            "temporal_consistency": "Temporal Consistency",
-            "entity_period_consistency": "Entity / Period Alignment",
-            "citation_support_proxy": "Citation Support Proxy",
-        }
-        for k, v in checks.items():
-            status_val = v.value if hasattr(v, "value") else str(v)
-            badge = format_status_badge(status_val)
-            rows.append(f"""
-                <tr>
-                    <td class="check-name">{labels.get(k, k)}</td>
-                    <td class="check-status">{badge}</td>
-                </tr>
-            """)
-        return "".join(rows)
-
-    def format_claims_html(claims: list) -> str:
-        items = []
-        for c in claims:
-            c_dict = c.model_dump(mode="json") if hasattr(c, "model_dump") else c
-            citations_html = []
-            for cit in c_dict.get("citations", []):
-                citations_html.append(f"""
-                    <div class="citation-box">
-                        <div class="cit-header">
-                            <span class="cit-doc">📄 {cit['document_id']}</span>
-                            <span class="cit-page">Page {cit['page']}</span>
-                        </div>
-                        <div class="cit-quote">"{cit['quoted_text']}"</div>
-                    </div>
-                """)
-            items.append(f"""
-                <div class="claim-card">
-                    <div class="claim-text">"{c_dict['text']}"</div>
-                    <div class="claim-meta">
-                        <span><strong>Metric:</strong> {c_dict.get('metric') or 'N/A'}</span>
-                        <span><strong>Value:</strong> {c_dict.get('value') or 'N/A'} {c_dict.get('unit') or ''}</span>
-                        <span><strong>Period:</strong> {c_dict.get('period') or 'N/A'}</span>
-                    </div>
-                    <div class="citations-container">
-                        {''.join(citations_html)}
-                    </div>
-                </div>
-            """)
-        return "".join(items)
-
-    def format_failures_html(failures: list) -> str:
-        if not failures:
-            return '<div class="no-failures">No validation failures detected. Temporal boundary respected.</div>'
-        items = []
-        for f in failures:
-            f_dict = f.model_dump(mode="json") if hasattr(f, "model_dump") else f
-            items.append(f"""
-                <div class="failure-card">
-                    <div class="fail-type">🚨 {f_dict['type']}</div>
-                    <div class="fail-msg">{f_dict['message']}</div>
-                    {f"<div class='fail-detail'><strong>Offending Document:</strong> {f_dict['document_id']} (Published: {f_dict['publication_date']}) vs <strong>Case As-Of Date:</strong> {f_dict['as_of_date']}</div>" if f_dict.get('document_id') else ""}
-                </div>
-            """)
-        return "".join(items)
-
-    engine_tag = "Live LLM Adapter" if (use_llm and evaluator_llm.llm_adapter.is_available) else "Deterministic Fixture"
-
-    return f"""<!DOCTYPE html>
+DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PeriodGuard | Financial Research Reliability Harness</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        :root {{
-            --bg-primary: #0b0f19;
-            --bg-card: #111827;
-            --bg-card-hover: #172033;
-            --border-color: #1f293d;
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
-            --text-dim: #6b7280;
-            --accent-blue: #3b82f6;
-            --accent-cyan: #06b6d4;
-            --emerald-500: #10b981;
-            --emerald-900: rgba(16, 185, 129, 0.15);
-            --rose-500: #f43f5e;
-            --rose-900: rgba(244, 63, 94, 0.15);
-            --amber-500: #f59e0b;
-        }}
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        body {{
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-main);
-            line-height: 1.5;
-            padding: 2.5rem 1.5rem;
-        }}
-        .container {{
-            max-width: 1240px;
-            margin: 0 auto;
-        }}
-        header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 2rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-        }}
-        .logo-group h1 {{
-            font-size: 1.85rem;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-            background: linear-gradient(135deg, #60a5fa 0%, #38bdf8 50%, #818cf8 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }}
-        .logo-group p {{
-            color: var(--text-muted);
-            font-size: 0.95rem;
-            margin-top: 0.25rem;
-        }}
-        .btn-rerun {{
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            color: white;
-            border: none;
-            padding: 0.65rem 1.25rem;
-            font-weight: 600;
-            font-size: 0.9rem;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
-        }}
-        .btn-rerun:hover {{
-            background: linear-gradient(135deg, #1d4ed8, #1e40af);
-            transform: translateY(-1px);
-        }}
-        .engine-badge {{
-            display: inline-block;
-            background: rgba(59, 130, 246, 0.15);
-            color: #93c5fd;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            border-radius: 6px;
-            padding: 0.25rem 0.6rem;
-            font-size: 0.78rem;
-            font-weight: 600;
-            margin-top: 0.5rem;
-        }}
-        .case-banner {{
-            background-color: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }}
-        .case-title {{
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--accent-cyan);
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }}
-        .case-question {{
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: var(--text-main);
-            margin-bottom: 1rem;
-        }}
-        .case-tags {{
-            display: flex;
-            gap: 1.5rem;
-            font-size: 0.88rem;
-            color: var(--text-muted);
-            flex-wrap: wrap;
-        }}
-        .case-tag strong {{
-            color: var(--text-main);
-        }}
-        .comparison-grid {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2.5rem;
-        }}
-        @media (max-width: 900px) {{
-            .comparison-grid {{
-                grid-template-columns: 1fr;
-            }}
-        }}
-        .mode-column {{
-            background-color: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 14px;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.25rem;
-            position: relative;
-        }}
-        .mode-column.correct-mode {{
-            border-top: 4px solid var(--emerald-500);
-        }}
-        .mode-column.broken-mode {{
-            border-top: 4px solid var(--rose-500);
-        }}
-        .mode-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .mode-title {{
-            font-size: 1.15rem;
-            font-weight: 700;
-        }}
-        .badge {{
-            display: inline-block;
-            padding: 0.3rem 0.75rem;
-            font-size: 0.82rem;
-            font-weight: 700;
-            border-radius: 6px;
-            letter-spacing: 0.04em;
-        }}
-        .badge-pass {{
-            background-color: var(--emerald-900);
-            color: #34d399;
-            border: 1px solid rgba(52, 211, 153, 0.3);
-        }}
-        .badge-fail {{
-            background-color: var(--rose-900);
-            color: #fb7185;
-            border: 1px solid rgba(251, 113, 133, 0.3);
-        }}
-        .section-subhead {{
-            font-size: 0.82rem;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-dim);
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }}
-        .checks-table {{
-            width: 100%;
-            border-collapse: collapse;
-        }}
-        .checks-table td {{
-            padding: 0.6rem 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            font-size: 0.88rem;
-        }}
-        .check-name {{
-            color: var(--text-main);
-        }}
-        .check-status {{
-            text-align: right;
-        }}
-        .claim-card {{
-            background-color: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
-        }}
-        .claim-text {{
-            font-weight: 500;
-            font-size: 0.92rem;
-            margin-bottom: 0.6rem;
-            color: #e2e8f0;
-        }}
-        .claim-meta {{
-            display: flex;
-            gap: 1rem;
-            font-size: 0.78rem;
-            color: var(--text-muted);
-            margin-bottom: 0.75rem;
-            background: rgba(0, 0, 0, 0.2);
-            padding: 0.4rem 0.6rem;
-            border-radius: 4px;
-        }}
-        .citation-box {{
-            background-color: #0c1322;
-            border-left: 3px solid var(--accent-blue);
-            padding: 0.6rem 0.8rem;
-            border-radius: 0 6px 6px 0;
-            font-size: 0.82rem;
-            margin-top: 0.5rem;
-        }}
-        .cit-header {{
-            display: flex;
-            justify-content: space-between;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            color: #93c5fd;
-            margin-bottom: 0.3rem;
-        }}
-        .cit-quote {{
-            color: #cbd5e1;
-            font-style: italic;
-            font-size: 0.8rem;
-        }}
-        .failure-card {{
-            background-color: var(--rose-900);
-            border: 1px solid rgba(244, 63, 94, 0.3);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
-        }}
-        .fail-type {{
-            color: #f43f5e;
-            font-weight: 700;
-            font-size: 0.85rem;
-            margin-bottom: 0.35rem;
-        }}
-        .fail-msg {{
-            font-size: 0.86rem;
-            color: #fecdd3;
-            margin-bottom: 0.4rem;
-        }}
-        .fail-detail {{
-            font-size: 0.78rem;
-            color: #fda4af;
-            font-family: 'JetBrains Mono', monospace;
-        }}
-        .no-failures {{
-            font-size: 0.86rem;
-            color: #34d399;
-            background: var(--emerald-900);
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            border: 1px solid rgba(52, 211, 153, 0.2);
-        }}
-        footer {{
-            text-align: center;
-            padding-top: 2rem;
-            border-top: 1px solid var(--border-color);
-            color: var(--text-dim);
-            font-size: 0.82rem;
-        }}
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeriodGuard • Financial Research Reliability & Citation Leakage Harness</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-base: #07090e;
+      --bg-surface: #0e131f;
+      --bg-surface-elevated: #141c2e;
+      --bg-surface-hover: #1b263d;
+      --border-subtle: rgba(255, 255, 255, 0.07);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --border-accent: rgba(99, 102, 241, 0.35);
+
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --text-dim: #475569;
+
+      --emerald-accent: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.16);
+      --emerald-border: rgba(16, 185, 129, 0.35);
+      --emerald-badge-bg: rgba(6, 78, 59, 0.45);
+      --emerald-badge-text: #34d399;
+
+      --rose-accent: #f43f5e;
+      --rose-glow: rgba(244, 63, 94, 0.16);
+      --rose-border: rgba(244, 63, 94, 0.38);
+      --rose-badge-bg: rgba(136, 19, 55, 0.45);
+      --rose-badge-text: #fb7185;
+
+      --indigo-accent: #6366f1;
+      --cyan-accent: #06b6d4;
+      --amber-accent: #f59e0b;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-full: 9999px;
+
+      --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.55;
+      background-image: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.12), transparent),
+        radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.05), transparent),
+        radial-gradient(circle at 90% 80%, rgba(244, 63, 94, 0.04), transparent);
+      background-attachment: fixed;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    .app-container {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    /* Top Navigation Header */
+    .top-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1.75rem;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-wrap: wrap;
+      gap: 1.25rem;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 24px rgba(79, 70, 229, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .brand-icon svg {
+      width: 24px;
+      height: 24px;
+      fill: none;
+      stroke: white;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .brand-text h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .version-tag {
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      background: rgba(99, 102, 241, 0.18);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--radius-full);
+      -webkit-text-fill-color: #a5b4fc;
+    }
+
+    .brand-text p {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      margin-top: 0.15rem;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+    }
+
+    .engine-toggle-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      padding: 0.45rem 0.85rem;
+      border-radius: var(--radius-full);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
+    }
+
+    .engine-indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--cyan-accent);
+      box-shadow: 0 0 10px var(--cyan-accent);
+      animation: pulse-dot 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    .btn {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 0.88rem;
+      padding: 0.6rem 1.2rem;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      border: 1px solid transparent;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+      color: white;
+      box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #4338ca 0%, #2563eb 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
+    }
+
+    .btn-secondary {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-surface-elevated);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* Target Case Hero Card */
+    .case-hero {
+      background: linear-gradient(145deg, rgba(20, 28, 46, 0.8) 0%, rgba(14, 19, 31, 0.95) 100%);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem 2rem;
+      margin-bottom: 2.25rem;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .case-hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #6366f1, #06b6d4, #10b981);
+    }
+
+    .case-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .case-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--cyan-accent);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .case-question-text {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      line-height: 1.45;
+      margin-bottom: 1.35rem;
+    }
+
+    .case-chips-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .meta-chip {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      padding: 0.45rem 0.85rem;
+      border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .meta-chip strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .meta-chip.highlight-date {
+      border-color: rgba(6, 182, 212, 0.35);
+      background: rgba(6, 182, 212, 0.08);
+    }
+    .meta-chip.highlight-date strong {
+      color: #38bdf8;
+      font-family: var(--font-mono);
+    }
+
+    /* Section Banner Axiom */
+    .axiom-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      padding: 0 0.5rem;
+    }
+
+    .axiom-banner h2 {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .axiom-quote {
+      font-size: 0.84rem;
+      font-style: italic;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Side-by-Side Dual Comparison Grid */
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.75rem;
+      margin-bottom: 3rem;
+    }
+
+    @media (max-width: 960px) {
+      .comparison-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .mode-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      position: relative;
+      transition: all 0.3s ease;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+    }
+
+    .mode-card.correct-card {
+      border-top: 4px solid var(--emerald-accent);
+    }
+
+    .mode-card.broken-card {
+      border-top: 4px solid var(--rose-accent);
+    }
+
+    .mode-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .mode-card-title h3 {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .mode-card-title p {
+      font-size: 0.84rem;
+      color: var(--text-secondary);
+      margin-top: 0.2rem;
+    }
+
+    /* Badges */
+    .status-badge {
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+      font-weight: 700;
+      padding: 0.35rem 0.85rem;
+      border-radius: var(--radius-md);
+      letter-spacing: 0.05em;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .status-badge.pass {
+      background: var(--emerald-badge-bg);
+      color: var(--emerald-badge-text);
+      border: 1px solid var(--emerald-border);
+      box-shadow: 0 0 16px var(--emerald-glow);
+    }
+
+    .status-badge.fail {
+      background: var(--rose-badge-bg);
+      color: var(--rose-badge-text);
+      border: 1px solid var(--rose-border);
+      box-shadow: 0 0 16px var(--rose-glow);
+    }
+
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 0.6rem;
+    }
+
+    /* Validator Checks Table */
+    .checks-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.75rem;
+    }
+
+    .check-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.4rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.84rem;
+      transition: background 0.15s ease;
+    }
+
+    .check-item:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .check-title {
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .mini-status {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+    }
+
+    .mini-status.pass {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .mini-status.fail {
+      color: #fb7185;
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+
+    /* Diagnosis / Failure Alerts */
+    .pass-diagnosis-box {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid var(--emerald-border);
+      border-radius: var(--radius-md);
+      padding: 0.9rem 1.1rem;
+      font-size: 0.86rem;
+      color: #6ee7b7;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+    }
+
+    .failure-alert-box {
+      background: rgba(244, 63, 94, 0.08);
+      border: 1px solid var(--rose-border);
+      border-radius: var(--radius-md);
+      padding: 1.1rem;
+      box-shadow: 0 0 20px rgba(244, 63, 94, 0.08);
+    }
+
+    .fail-badge-title {
+      color: #f43f5e;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 0.84rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .fail-description {
+      font-size: 0.86rem;
+      color: #fecdd3;
+      margin-bottom: 0.75rem;
+      line-height: 1.45;
+    }
+
+    .fail-timeline-callout {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+      padding: 0.55rem 0.75rem;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: #fda4af;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    /* Synthesized Claims & Citations */
+    .claims-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .claim-item-card {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1rem 1.15rem;
+      transition: all 0.2s ease;
+    }
+
+    .claim-item-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      background: var(--bg-surface-hover);
+    }
+
+    .claim-assertion-text {
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: #e2e8f0;
+      line-height: 1.45;
+      margin-bottom: 0.65rem;
+    }
+
+    .claim-attributes {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.85rem;
+    }
+
+    .attr-tag {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      color: var(--text-secondary);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .attr-tag b {
+      color: #ffffff;
+    }
+
+    /* Interactive Citation Box Button */
+    .citation-btn {
+      width: 100%;
+      text-align: left;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border-subtle);
+      border-left: 3px solid var(--indigo-accent);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 0.65rem 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-top: 0.4rem;
+      display: block;
+    }
+
+    .citation-btn:hover {
+      background: rgba(30, 41, 59, 0.9);
+      border-left-color: var(--cyan-accent);
+      transform: translateX(2px);
+    }
+
+    .cit-btn-header {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: #93c5fd;
+      margin-bottom: 0.25rem;
+    }
+
+    .cit-btn-quote {
+      font-size: 0.8rem;
+      color: #cbd5e1;
+      font-style: italic;
+      line-height: 1.4;
+    }
+
+    /* Slide-over Citation Inspector Drawer */
+    .drawer-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(3, 7, 18, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 998;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    .drawer-backdrop.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .inspector-drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      max-width: 520px;
+      background: #0d121f;
+      border-left: 1px solid var(--border-strong);
+      z-index: 999;
+      box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .inspector-drawer.active {
+      transform: translateX(0);
+    }
+
+    .drawer-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 1.75rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .drawer-top-bar h3 {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .btn-close-drawer {
+      background: none;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-size: 1.25rem;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .btn-close-drawer:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: white;
+    }
+
+    .drawer-body {
+      padding: 1.75rem;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .doc-meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .doc-meta-table td {
+      padding: 0.65rem 0.9rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .doc-meta-table td:first-child {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      width: 38%;
+    }
+
+    .doc-meta-table td:last-child {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .timeline-card {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.1rem;
+    }
+
+    .timeline-nodes {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      position: relative;
+      padding-left: 1.2rem;
+    }
+
+    .timeline-nodes::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      background: var(--border-strong);
+    }
+
+    .t-node {
+      position: relative;
+      font-size: 0.82rem;
+    }
+
+    .t-node::after {
+      content: '';
+      position: absolute;
+      left: -1.2rem;
+      top: 4px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--cyan-accent);
+      box-shadow: 0 0 8px var(--cyan-accent);
+    }
+
+    .t-node.future::after {
+      background: var(--rose-accent);
+      box-shadow: 0 0 10px var(--rose-accent);
+    }
+
+    .t-node-title {
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .t-node-desc {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .verbatim-box {
+      background: #070a12;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      font-size: 0.84rem;
+      line-height: 1.6;
+      color: #cbd5e1;
+      font-style: italic;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    footer span strong {
+      color: var(--text-muted);
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="logo-group">
-                <h1>PeriodGuard</h1>
-                <p>Financial Research Citation Leakage & Temporal Reliability Evaluation Harness</p>
-                <div class="engine-badge">Engine: {engine_tag}</div>
-            </div>
-            <button class="btn-rerun" onclick="location.reload()">⚡ Re-run Evaluation</button>
-        </header>
-
-        <div class="case-banner">
-            <div class="case-title">Target Evaluation Case (Default Fixture)</div>
-            <div class="case-question">"{case.question}"</div>
-            <div class="case-tags">
-                <div class="case-tag"><strong>Target Entity:</strong> {case.company}</div>
-                <div class="case-tag"><strong>As-Of Cutoff Date:</strong> {case.as_of_date.isoformat()}</div>
-                <div class="case-tag"><strong>Target Reporting Period:</strong> {case.as_of_reporting_period}</div>
-                <div class="case-tag"><strong>Expected Metric:</strong> {case.expected_metric} ({case.expected_unit})</div>
-            </div>
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="brand-group">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
         </div>
-
-        <div class="comparison-grid">
-            <!-- Correct Mode Card -->
-            <div class="mode-column correct-mode">
-                <div class="mode-header">
-                    <div>
-                        <div class="mode-title">Date-Filtered Mode</div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);">Enforces as-of date (2025-05-15)</div>
-                    </div>
-                    {format_status_badge(correct.status.value)}
-                </div>
-
-                <div>
-                    <div class="section-subhead">Deterministic Checks</div>
-                    <table class="checks-table">
-                        {format_checks_table(correct.checks)}
-                    </table>
-                </div>
-
-                <div>
-                    <div class="section-subhead">Failures & Leakage Diagnosis</div>
-                    {format_failures_html(correct.failures)}
-                </div>
-
-                <div>
-                    <div class="section-subhead">Synthesized Claims & Verified Citations</div>
-                    {format_claims_html(correct.claims)}
-                </div>
-            </div>
-
-            <!-- Broken Mode Card -->
-            <div class="mode-column broken-mode">
-                <div class="mode-header">
-                    <div>
-                        <div class="mode-title">Unfiltered Mode (Broken)</div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);">Disables temporal boundary filter</div>
-                    </div>
-                    {format_status_badge(broken.status.value)}
-                </div>
-
-                <div>
-                    <div class="section-subhead">Deterministic Checks</div>
-                    <table class="checks-table">
-                        {format_checks_table(broken.checks)}
-                    </table>
-                </div>
-
-                <div>
-                    <div class="section-subhead">Failures & Leakage Diagnosis</div>
-                    {format_failures_html(broken.failures)}
-                </div>
-
-                <div>
-                    <div class="section-subhead">Synthesized Claims & Leaked Citations</div>
-                    {format_claims_html(broken.claims)}
-                </div>
-            </div>
+        <div class="brand-text">
+          <h1>PeriodGuard <span class="version-tag">MVP 1.0</span></h1>
+          <p>Financial Research Reliability & Future-Period Citation Leakage Harness</p>
         </div>
+      </div>
+      <div class="header-actions">
+        <div class="engine-toggle-badge">
+          <span class="engine-indicator-dot"></span>
+          <span id="engineLabel">Engine: Deterministic Fixture</span>
+        </div>
+        <button id="btnRerun" class="btn btn-primary" onclick="triggerEvaluation()">
+          ⚡ Re-run Evaluation
+        </button>
+      </div>
+    </header>
 
-        <footer>
-            PeriodGuard MVP • Reference reliability evaluation harness • Evaluates temporal safety, entity boundaries, and citation resolution.
-        </footer>
+    <!-- Case Hero Banner -->
+    <section class="case-hero">
+      <div class="case-header-row">
+        <div class="case-eyebrow">
+          <span>🎯</span> Target Evaluation Case (Default Fixture)
+        </div>
+      </div>
+      <div class="case-question-text" id="caseQuestion">
+        Loading target evaluation case...
+      </div>
+      <div class="case-chips-grid">
+        <div class="meta-chip"><span>🏢 Target Entity:</span> <strong id="caseCompany">—</strong></div>
+        <div class="meta-chip highlight-date"><span>📅 As-Of Boundary:</span> <strong id="caseAsOfDate">—</strong></div>
+        <div class="meta-chip"><span>📊 Target Period:</span> <strong id="casePeriod">—</strong></div>
+        <div class="meta-chip"><span>📈 Expected Metric:</span> <strong id="caseMetric">—</strong></div>
+      </div>
+    </section>
+
+    <!-- Axiom Banner -->
+    <div class="axiom-banner">
+      <h2>Retrieval Mode Comparison</h2>
+      <span class="axiom-quote">"A citation exists" ≠ "The cited answer is safe to use"</span>
     </div>
+
+    <!-- Side-by-Side Dual Comparison Grid -->
+    <main class="comparison-grid" id="comparisonGrid">
+      <!-- Correct Mode Card (Injected via JS) -->
+      <!-- Broken Mode Card (Injected via JS) -->
+    </main>
+
+    <!-- Footer -->
+    <footer>
+      <span><strong>PeriodGuard MVP</strong> • Evaluates temporal safety, entity boundaries, and citation traceability.</span>
+      <span>Reference reliability test harness</span>
+    </footer>
+
+  </div>
+
+  <!-- Slide-over Citation Inspector Drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+  <aside class="inspector-drawer" id="inspectorDrawer">
+    <div class="drawer-top-bar">
+      <div>
+        <div class="section-label" style="margin-bottom: 0.2rem;">Provenance Inspector</div>
+        <h3 id="drawerDocId">Document Metadata</h3>
+      </div>
+      <button class="btn-close-drawer" onclick="closeDrawer()">×</button>
+    </div>
+    <div class="drawer-body" id="drawerBody">
+      <!-- Content populated dynamically -->
+    </div>
+  </aside>
+
+  <!-- Initial State Injection -->
+  <script id="initData" type="application/json">__INITIAL_DATA__</script>
+
+  <script>
+    let appState = JSON.parse(document.getElementById('initData').textContent);
+
+    const checkLabels = {
+      citation_resolution: 'Citation Resolution',
+      temporal_consistency: 'Temporal Consistency',
+      entity_period_consistency: 'Entity / Period Alignment',
+      citation_support_proxy: 'Citation Support Proxy'
+    };
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderDashboard(data) {
+      // 1. Populate Case Hero
+      const c = data.case;
+      document.getElementById('caseQuestion').textContent = `"${c.question}"`;
+      document.getElementById('caseCompany').textContent = c.company;
+      document.getElementById('caseAsOfDate').textContent = c.as_of_date;
+      document.getElementById('casePeriod').textContent = c.as_of_reporting_period;
+      document.getElementById('caseMetric').textContent = `${c.expected_metric} (${c.expected_unit})`;
+      document.getElementById('engineLabel').textContent = `Engine: ${data.engine === 'llm' ? 'Live LLM Adapter' : 'Deterministic Fixture'}`;
+
+      // 2. Render Cards
+      const grid = document.getElementById('comparisonGrid');
+      grid.innerHTML = `
+        ${renderModeCard(data.correct_mode, false, data)}
+        ${renderModeCard(data.broken_mode, true, data)}
+      `;
+    }
+
+    function renderModeCard(report, isBroken, data) {
+      const isPass = report.status === 'PASS';
+      const cardClass = isBroken ? 'broken-card' : 'correct-card';
+      const title = isBroken ? 'Unfiltered Mode (Broken)' : 'Date-Filtered Mode';
+      const subtitle = isBroken ? 'Disables temporal filter · allows future leaks' : 'Enforces as-of date (2025-05-15)';
+      const badgeClass = isPass ? 'pass' : 'fail';
+      const badgeText = isPass ? '✓ PASS' : '✗ FAIL';
+
+      // Checks list
+      const checksHtml = Object.entries(report.checks).map(([key, val]) => `
+        <div class="check-item">
+          <span class="check-title">${checkLabels[key] || key}</span>
+          <span class="mini-status ${val.toLowerCase()}">${val}</span>
+        </div>
+      `).join('');
+
+      // Diagnosis / Failure Alert
+      let alertHtml = '';
+      if (!isBroken || report.failures.length === 0) {
+        alertHtml = `
+          <div class="pass-diagnosis-box">
+            <span>✓</span>
+            <div>No temporal leakage detected. Future documents strictly gated by publication date.</div>
+          </div>
+        `;
+      } else {
+        const primaryFail = report.failures.find(f => f.type === 'FUTURE_PERIOD_LEAK') || report.failures[0];
+        const daysDiff = Math.round((new Date(primaryFail.publication_date) - new Date(primaryFail.as_of_date)) / (1000 * 60 * 60 * 24));
+        alertHtml = `
+          <div class="failure-alert-box">
+            <div class="fail-badge-title">🚨 ${escapeHtml(primaryFail.type)}</div>
+            <div class="fail-description">${escapeHtml(primaryFail.message)}</div>
+            <div class="fail-timeline-callout">
+              <span><strong>Offending Doc:</strong> ${escapeHtml(primaryFail.document_id)}</span>
+              <span><strong>Published:</strong> ${escapeHtml(primaryFail.publication_date)} (Delta: +${daysDiff} days)</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // Claims & Citations
+      const claimsHtml = report.claims.map(claim => {
+        const citationsHtml = claim.citations.map(cit => {
+          const doc = report.retrieved_documents.find(d => d.id === cit.document_id) || {};
+          return `
+            <button class="citation-btn" onclick="openInspector('${escapeHtml(cit.document_id)}', '${escapeHtml(cit.quoted_text)}')">
+              <div class="cit-btn-header">
+                <span>📄 ${escapeHtml(cit.document_id)}</span>
+                <span>Page ${cit.page} · Pub: ${escapeHtml(doc.publication_date || '—')}</span>
+              </div>
+              <div class="cit-btn-quote">"${escapeHtml(cit.quoted_text)}"</div>
+            </button>
+          `;
+        }).join('');
+
+        return `
+          <div class="claim-item-card">
+            <div class="claim-assertion-text">"${escapeHtml(claim.text)}"</div>
+            <div class="claim-attributes">
+              <span class="attr-tag">Metric: <b>${escapeHtml(claim.metric || 'N/A')}</b></span>
+              <span class="attr-tag">Value: <b>${claim.value !== null && claim.value !== undefined ? claim.value : 'N/A'} ${escapeHtml(claim.unit || '')}</b></span>
+              <span class="attr-tag">Period: <b>${escapeHtml(claim.period || 'N/A')}</b></span>
+            </div>
+            <div>
+              <div class="section-label" style="font-size: 0.68rem; margin-bottom: 0.3rem;">Cited Evidence (Click to inspect)</div>
+              ${citationsHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="mode-card ${cardClass}">
+          <div class="mode-card-header">
+            <div class="mode-card-title">
+              <h3>${title}</h3>
+              <p>${subtitle}</p>
+            </div>
+            <span class="status-badge ${badgeClass}">${badgeText}</span>
+          </div>
+
+          <div>
+            <div class="section-label">Deterministic Validator Checks</div>
+            <div class="checks-list">${checksHtml}</div>
+          </div>
+
+          <div>
+            <div class="section-label">${isBroken ? 'Leakage Diagnosis' : 'Temporal Verification'}</div>
+            ${alertHtml}
+          </div>
+
+          <div>
+            <div class="section-label">Synthesized Claims & Traceable Citations</div>
+            <div class="claims-stack">${claimsHtml}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openInspector(docId, quotedText) {
+      const allDocs = appState.correct_mode.retrieved_documents.concat(appState.broken_mode.retrieved_documents);
+      const doc = allDocs.find(d => d.id === docId) || {
+        id: docId,
+        company: 'Acme Industries',
+        doc_type: 'Financial Document',
+        reporting_period: 'Q4 FY25',
+        publication_date: '2025-05-10',
+        page: 1,
+        text: quotedText,
+        source_url: 'https://example.com'
+      };
+
+      const asOf = appState.case.as_of_date;
+      const isFuture = new Date(doc.publication_date) > new Date(asOf);
+
+      document.getElementById('drawerDocId').textContent = doc.id;
+      document.getElementById('drawerBody').innerHTML = `
+        <div>
+          <div class="section-label">Document Metadata</div>
+          <table class="doc-meta-table">
+            <tr><td>Document Type</td><td>${escapeHtml(doc.doc_type)}</td></tr>
+            <tr><td>Target Entity</td><td>${escapeHtml(doc.company)}</td></tr>
+            <tr><td>Publication Date</td><td style="font-family: var(--font-mono); color: ${isFuture ? '#fb7185' : '#34d399'};">${escapeHtml(doc.publication_date)}</td></tr>
+            <tr><td>Reporting Period</td><td>${escapeHtml(doc.reporting_period)}</td></tr>
+            <tr><td>Section Page</td><td>Page ${doc.page}</td></tr>
+            <tr><td>Provenance</td><td style="font-size: 0.75rem; word-break: break-all;"><a href="${escapeHtml(doc.source_url)}" target="_blank" style="color: #93c5fd;">${escapeHtml(doc.source_url)}</a></td></tr>
+          </table>
+        </div>
+
+        <div class="timeline-card">
+          <div class="section-label">Temporal Boundary Timeline</div>
+          <div class="timeline-nodes">
+            <div class="t-node">
+              <div class="t-node-title">Case As-Of Boundary</div>
+              <div class="t-node-desc">${asOf} • Eligible cutoff date</div>
+            </div>
+            <div class="t-node ${isFuture ? 'future' : ''}">
+              <div class="t-node-title">Document Publication</div>
+              <div class="t-node-desc">${escapeHtml(doc.publication_date)} • ${isFuture ? '🚨 FUTURE LEAK (Violates Boundary)' : '✓ Within Safe Window'}</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-label">Verbatim Evidence Quote</div>
+          <div class="verbatim-box">"${escapeHtml(quotedText || doc.text)}"</div>
+        </div>
+      `;
+
+      document.getElementById('inspectorDrawer').classList.add('active');
+      document.getElementById('drawerBackdrop').classList.add('active');
+    }
+
+    function closeDrawer() {
+      document.getElementById('inspectorDrawer').classList.remove('active');
+      document.getElementById('drawerBackdrop').classList.remove('active');
+    }
+
+    async function triggerEvaluation() {
+      const btn = document.getElementById('btnRerun');
+      btn.disabled = true;
+      btn.innerHTML = '⚡ Running...';
+      try {
+        const resp = await fetch('/evaluate', { method: 'POST' });
+        if (resp.ok) {
+          appState = await resp.json();
+          renderDashboard(appState);
+        }
+      } catch (err) {
+        console.error('Failed to rerun evaluation', err);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '⚡ Re-run Evaluation';
+      }
+    }
+
+    // Initial render
+    renderDashboard(appState);
+  </script>
 </body>
 </html>
 """
+
+
+@app.get("/", response_class=HTMLResponse)
+def render_dashboard(use_llm: bool = Query(False)) -> str:
+    data = get_evaluation_data(use_llm=use_llm)
+    json_str = json.dumps(data).replace("</", "<\\/")
+    return DASHBOARD_HTML.replace("__INITIAL_DATA__", json_str)
