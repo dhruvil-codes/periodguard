@@ -36,8 +36,8 @@ except ImportError:
 
 app = FastAPI(
     title="PeriodGuard",
-    description="Interactive evaluation tool for financial research systems detecting future-period citation leakage.",
-    version="1.4.0",
+    description="Evaluation harness for financial research systems detecting future-period citation leakage.",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -48,7 +48,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory working corpus
 DEFAULT_CORPUS_PATH = Path(__file__).parent.parent / "data" / "corpus.json"
 active_corpus = Corpus.from_json_file(DEFAULT_CORPUS_PATH)
 evaluator_deterministic = Evaluator(corpus=active_corpus, use_llm=False)
@@ -76,45 +75,62 @@ class AddDocumentRequest(BaseModel):
     source_url: str = "Uploaded Document"
 
 
-PRESETS = [
+BENCHMARK_TESTS = [
     {
-        "id": "future_leak_default",
-        "title": "⚡ Future Leak Trap (May 15)",
+        "id": "future_leak_trap",
+        "title": "Future-Period Leak Trap",
+        "badge": "High-Signal Trap",
+        "badge_color": "rose",
         "company": "Acme Industries",
         "question": "As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.",
         "as_of_date": "2025-05-15",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Demonstrates how Naive RAG leaks citations from the FY26 Annual Report (published Aug 2025).",
+        "description": "Tests if naive retrieval leaks citations from the FY26 Annual Report (published Aug 2025) for a May 2025 query.",
     },
     {
-        "id": "clean_historical_pass",
-        "title": "⚡ Clean Historical (June 1)",
+        "id": "clean_historical",
+        "title": "Clean Historical Query",
+        "badge": "Safe Historical",
+        "badge_color": "emerald",
         "company": "Acme Industries",
         "question": "What was Acme Industries' sequential EBITDA margin change in Q4 FY25?",
         "as_of_date": "2025-06-01",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Sets the as-of date after Q4 results release, verifying a clean PASS across all checks.",
+        "description": "Sets the as-of date after Q4 results release (June 2025), verifying a clean 4/4 PASS across all validators.",
     },
     {
-        "id": "strict_early_cutoff",
-        "title": "⚡ Pre-Release Call (May 11)",
+        "id": "pre_release_cutoff",
+        "title": "Pre-Release Earnings Call Cutoff",
+        "badge": "Temporal Boundary",
+        "badge_color": "amber",
         "company": "Acme Industries",
         "question": "What management commentary was provided regarding Q4 FY25 EBITDA margin expansion?",
         "as_of_date": "2025-05-11",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Sets cutoff before the May 12 Earnings Call, catching any commentary cited before it occurred.",
+        "description": "Sets cutoff to May 11 (before the May 12 Earnings Call), catching commentary cited before it took place.",
+    },
+    {
+        "id": "peer_entity_mismatch",
+        "title": "Peer Entity Contamination Trap",
+        "badge": "Entity Check",
+        "badge_color": "indigo",
+        "company": "Acme Industries",
+        "question": "Did EBITDA margin reach 19.1% in Q4 FY25?",
+        "as_of_date": "2025-05-15",
+        "as_of_reporting_period": "Q4 FY25",
+        "description": "Tests whether the system rejects citations from Globex Corp (peer company with 19.1% margin).",
     },
 ]
 
 
 @app.get("/health")
 def health_check() -> Dict[str, str]:
-    return {"status": "ok", "service": "PeriodGuard Financial Evaluation Tool"}
+    return {"status": "ok", "service": "PeriodGuard Financial Evaluation Landing Engine"}
 
 
 @app.get("/api/presets")
 def get_presets() -> List[Dict[str, Any]]:
-    return PRESETS
+    return BENCHMARK_TESTS
 
 
 @app.get("/api/corpus")
@@ -128,7 +144,11 @@ def reset_corpus() -> Dict[str, Any]:
     active_corpus = Corpus.from_json_file(DEFAULT_CORPUS_PATH)
     evaluator_deterministic = Evaluator(corpus=active_corpus, use_llm=False)
     evaluator_llm = Evaluator(corpus=active_corpus, use_llm=True)
-    return {"status": "success", "message": "Corpus restored to default fixtures", "count": len(active_corpus.all_documents())}
+    return {
+        "status": "success",
+        "message": "Corpus restored to default fixtures",
+        "count": len(active_corpus.all_documents()),
+    }
 
 
 @app.post("/api/corpus/add")
@@ -187,7 +207,7 @@ async def upload_document_file(
             extracted_text = file_bytes.decode("latin-1")
 
     if not extracted_text.strip():
-        extracted_text = f"Sample text content extracted from {filename}."
+        extracted_text = f"Sample financial text content extracted from {filename}."
 
     doc = Document(
         id=doc_id,
@@ -251,23 +271,23 @@ def get_default_report(use_llm: bool = Query(False)) -> Dict[str, Any]:
     return execute_evaluation(get_default_case(), use_llm=use_llm)
 
 
-DASHBOARD_HTML = """<!DOCTYPE html>
+LANDING_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PeriodGuard • Verified Financial Research & Citation Reliability</title>
+  <title>PeriodGuard • Financial Research Reliability & Temporal Citation Gate</title>
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
     :root {
       --bg-base: #070a12;
-      --bg-card: #0f1626;
-      --bg-card-elevated: #151f36;
-      --bg-card-hover: #1c2a47;
+      --bg-card: #0e1424;
+      --bg-card-elevated: #141d33;
+      --bg-card-hover: #1b2745;
       --border-subtle: rgba(255, 255, 255, 0.08);
       --border-strong: rgba(255, 255, 255, 0.16);
 
@@ -283,17 +303,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       --rose-bg: rgba(244, 63, 94, 0.12);
       --rose-border: rgba(244, 63, 94, 0.35);
 
-      --blue-500: #3b82f6;
-      --cyan-500: #06b6d4;
       --indigo-500: #6366f1;
+      --cyan-500: #06b6d4;
+      --amber-500: #f59e0b;
 
-      --font-display: 'Plus Jakarta Sans', sans-serif;
-      --font-body: 'Inter', sans-serif;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
 
       --radius-sm: 6px;
       --radius-md: 10px;
-      --radius-lg: 14px;
+      --radius-lg: 16px;
       --radius-full: 9999px;
     }
 
@@ -305,49 +325,51 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: var(--text-main);
       min-height: 100vh;
       line-height: 1.55;
-      padding: 1.5rem 1rem 3.5rem;
       background-image: 
-        radial-gradient(ellipse 65% 35% at 50% -10%, rgba(99, 102, 241, 0.15), transparent),
-        radial-gradient(circle at 10% 25%, rgba(6, 182, 212, 0.05), transparent);
+        radial-gradient(ellipse 70% 35% at 50% -10%, rgba(99, 102, 241, 0.15), transparent),
+        radial-gradient(circle at 15% 20%, rgba(6, 182, 212, 0.06), transparent),
+        radial-gradient(circle at 85% 80%, rgba(244, 63, 94, 0.04), transparent);
+      background-attachment: fixed;
+      padding: 1.5rem 1rem 4rem;
     }
 
-    .container {
-      max-width: 960px;
+    .landing-wrap {
+      max-width: 1060px;
       margin: 0 auto;
     }
 
-    /* Minimal Navbar */
+    /* Top Navbar */
     .navbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.5rem;
-      padding-bottom: 1rem;
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
       border-bottom: 1px solid var(--border-subtle);
       flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
       gap: 0.75rem;
     }
 
-    .brand-group {
-      display: flex;
-      align-items: center;
-      gap: 0.65rem;
-    }
-
     .brand-icon {
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       background: linear-gradient(135deg, #4f46e5, #06b6d4);
       border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 16px rgba(79, 70, 229, 0.35);
+      box-shadow: 0 0 20px rgba(79, 70, 229, 0.35);
     }
 
     .brand-icon svg {
-      width: 18px;
-      height: 18px;
+      width: 20px;
+      height: 20px;
       fill: none;
       stroke: white;
       stroke-width: 2.2;
@@ -355,9 +377,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       stroke-linejoin: round;
     }
 
-    .brand-title {
+    .brand-text h1 {
       font-family: var(--font-display);
-      font-size: 1.35rem;
+      font-size: 1.45rem;
       font-weight: 800;
       letter-spacing: -0.02em;
       display: flex;
@@ -370,8 +392,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-size: 0.65rem;
       background: rgba(99, 102, 241, 0.2);
       color: #a5b4fc;
-      border: 1px solid rgba(99, 102, 241, 0.35);
-      padding: 0.15rem 0.45rem;
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      padding: 0.15rem 0.5rem;
       border-radius: var(--radius-full);
       font-weight: 600;
     }
@@ -379,15 +401,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .nav-actions {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
+      gap: 0.6rem;
     }
 
     .btn {
       font-family: var(--font-body);
       font-weight: 600;
       font-size: 0.82rem;
-      padding: 0.45rem 0.9rem;
+      padding: 0.5rem 1rem;
       border-radius: var(--radius-sm);
       cursor: pointer;
       display: inline-flex;
@@ -401,7 +422,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .btn-primary {
       background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
       color: white;
-      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
     }
     .btn-primary:hover {
       background: linear-gradient(135deg, #4338ca 0%, #2563eb 100%);
@@ -418,78 +439,291 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 255, 255, 0.25);
     }
 
-    /* Core Prompt & Query Box */
-    .prompt-box {
+    /* 1. Hero / Product Overview Section */
+    .hero-section {
+      text-align: center;
+      padding: 1.5rem 0 2.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 2rem;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--cyan-500);
+      margin-bottom: 0.6rem;
+    }
+
+    .hero-headline {
+      font-family: var(--font-display);
+      font-size: 2.25rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.25;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1rem;
+      max-width: 860px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .hero-thesis {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      max-width: 760px;
+      margin: 0 auto 1.75rem;
+      line-height: 1.6;
+    }
+
+    .thesis-callout {
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 0.75rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-family: var(--font-mono);
+      font-size: 0.86rem;
+      color: #a5b4fc;
+      display: inline-block;
+    }
+
+    /* Feature Pillars Grid */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.75rem;
+      text-align: left;
+    }
+
+    @media (max-width: 768px) {
+      .pillars-grid { grid-template-columns: 1fr; }
+    }
+
+    .pillar-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.15rem;
+    }
+
+    .pillar-icon {
+      font-size: 1.2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .pillar-title {
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 0.3rem;
+    }
+
+    .pillar-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    /* 2. Step 1: Document Corpus Setup */
+    .step-section {
       background: var(--bg-card);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
-      padding: 1.25rem 1.35rem;
-      margin-bottom: 1.5rem;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.3);
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2rem;
     }
 
-    .box-label {
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.15rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .step-badge {
       font-family: var(--font-mono);
       font-size: 0.72rem;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      background: rgba(6, 182, 212, 0.15);
       color: var(--cyan-500);
-      margin-bottom: 0.4rem;
-      display: block;
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      padding: 0.2rem 0.6rem;
+      border-radius: var(--radius-full);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
     }
 
-    .query-textarea {
-      width: 100%;
-      background: rgba(0, 0, 0, 0.45);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      color: #ffffff;
-      font-family: var(--font-body);
-      font-size: 0.96rem;
-      padding: 0.75rem 0.95rem;
-      line-height: 1.5;
-      resize: vertical;
-      min-height: 68px;
+    .step-title {
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .corpus-choice-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    @media (max-width: 680px) {
+      .corpus-choice-grid { grid-template-columns: 1fr; }
+    }
+
+    .corpus-option-card {
+      background: var(--bg-card-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 0.85rem;
       transition: all 0.15s ease;
     }
 
-    .query-textarea:focus {
-      outline: none;
-      border-color: var(--cyan-500);
-      box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+    .corpus-option-card:hover {
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
-    .inline-controls {
+    .corpus-option-card.active {
+      border-color: var(--indigo-500);
+      background: rgba(99, 102, 241, 0.08);
+    }
+
+    /* 3. Step 2: Evaluation Mode Switcher */
+    .tabs-nav {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border-strong);
+      margin-bottom: 1.5rem;
+    }
+
+    .tab-btn {
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding: 0.65rem 1.25rem;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .tab-btn:hover { color: var(--text-main); }
+    .tab-btn.active {
+      color: #ffffff;
+      border-bottom-color: var(--cyan-500);
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* Mode A: Benchmark Tests Grid */
+    .benchmarks-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    @media (max-width: 720px) {
+      .benchmarks-grid { grid-template-columns: 1fr; }
+    }
+
+    .benchmark-card {
+      background: var(--bg-card-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.15rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .benchmark-card:hover {
+      border-color: var(--cyan-500);
+      background: var(--bg-card-hover);
+      transform: translateY(-2px);
+    }
+
+    .benchmark-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .badge-pill {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-full);
+      text-transform: uppercase;
+    }
+
+    .badge-pill.rose { background: var(--rose-bg); color: #fb7185; border: 1px solid var(--rose-border); }
+    .badge-pill.emerald { background: var(--emerald-bg); color: #34d399; border: 1px solid var(--emerald-border); }
+    .badge-pill.amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
+    .badge-pill.indigo { background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.35); }
+
+    /* Mode B: Plain English Prompt Controls */
+    .prompt-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .prompt-textarea {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      color: #ffffff;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      padding: 0.85rem 1rem;
+      line-height: 1.5;
+      resize: vertical;
+      min-height: 72px;
+    }
+
+    .prompt-textarea:focus {
+      outline: none;
+      border-color: var(--cyan-500);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+    }
+
+    .prompt-controls-grid {
       display: grid;
       grid-template-columns: 1.2fr 1fr 1fr 1fr auto;
       gap: 0.65rem;
       align-items: flex-end;
-      margin-top: 0.75rem;
     }
 
     @media (max-width: 820px) {
-      .inline-controls { grid-template-columns: 1fr 1fr; }
+      .prompt-controls-grid { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 480px) {
-      .inline-controls { grid-template-columns: 1fr; }
+      .prompt-controls-grid { grid-template-columns: 1fr; }
     }
 
-    .input-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .input-label {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-
-    .input-control {
+    .input-field {
       background: rgba(0, 0, 0, 0.4);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-sm);
@@ -500,126 +734,91 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       width: 100%;
     }
 
-    .sample-pills-row {
+    /* 4. Live Results & Verification Section */
+    .results-section {
+      margin-top: 2rem;
       display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      margin-top: 0.9rem;
-      padding-top: 0.85rem;
-      border-top: 1px solid var(--border-subtle);
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 1.5rem;
     }
 
-    .sample-pill {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      padding: 0.25rem 0.55rem;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: all 0.15s ease;
-      white-space: nowrap;
-    }
-
-    .sample-pill:hover {
-      background: rgba(99, 102, 241, 0.2);
-      border-color: var(--indigo-500);
-      color: #ffffff;
-    }
-
-    /* Primary Verified Result Presentation */
-    .answer-card {
+    .verified-result-card {
       background: var(--bg-card);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.3);
+      padding: 1.75rem;
+      box-shadow: 0 10px 32px rgba(0,0,0,0.35);
     }
 
-    .answer-card-header {
+    .result-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1rem;
+      margin-bottom: 1.15rem;
       flex-wrap: wrap;
       gap: 0.6rem;
     }
 
-    .status-badge {
+    .gate-badge {
       font-family: var(--font-mono);
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       font-weight: 700;
-      padding: 0.3rem 0.75rem;
+      padding: 0.35rem 0.85rem;
       border-radius: var(--radius-full);
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      letter-spacing: 0.02em;
     }
 
-    .status-badge.safe {
+    .gate-badge.safe {
       background: var(--emerald-bg);
       color: var(--emerald-500);
       border: 1px solid var(--emerald-border);
-      box-shadow: 0 0 14px rgba(16, 185, 129, 0.12);
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
     }
 
-    .status-badge.unsafe {
+    .gate-badge.unsafe {
       background: var(--rose-bg);
       color: var(--rose-500);
       border: 1px solid var(--rose-border);
-      box-shadow: 0 0 14px rgba(244, 63, 94, 0.12);
+      box-shadow: 0 0 16px rgba(244, 63, 94, 0.15);
     }
 
-    .answer-body-text {
-      font-size: 1.05rem;
+    .answer-lead {
+      font-size: 1.1rem;
       color: #ffffff;
       line-height: 1.6;
       font-weight: 500;
-      margin-bottom: 1.15rem;
+      margin-bottom: 1.25rem;
     }
 
     .claims-list {
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
-      margin-top: 0.75rem;
+      gap: 0.85rem;
     }
 
     .claim-item {
       background: var(--bg-card-elevated);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      padding: 0.85rem 1rem;
-    }
-
-    .claim-meta-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.84rem;
-      color: #e2e8f0;
-      margin-bottom: 0.5rem;
-      flex-wrap: wrap;
-      gap: 0.4rem;
+      padding: 0.95rem 1.15rem;
     }
 
     .citation-btn {
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid var(--border-strong);
       border-left: 3px solid var(--indigo-500);
-      padding: 0.5rem 0.75rem;
+      padding: 0.55rem 0.85rem;
       border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
       cursor: pointer;
-      font-size: 0.78rem;
+      font-size: 0.8rem;
       color: var(--text-muted);
       transition: all 0.15s ease;
       display: block;
       width: 100%;
       text-align: left;
-      margin-top: 0.35rem;
+      margin-top: 0.4rem;
     }
 
     .citation-btn:hover {
@@ -630,22 +829,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .cit-top {
       font-family: var(--font-mono);
-      font-size: 0.74rem;
+      font-size: 0.75rem;
       color: #93c5fd;
       display: flex;
       justify-content: space-between;
       margin-bottom: 0.2rem;
     }
 
-    /* Signature Explainer: Why PeriodGuard > Naive RAG */
-    .explainer-card {
+    /* Comparison Box */
+    .comparison-explainer {
       background: linear-gradient(145deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
       border: 1px solid rgba(99, 102, 241, 0.3);
       border-radius: var(--radius-lg);
-      padding: 1.25rem 1.5rem;
+      padding: 1.35rem 1.6rem;
     }
 
-    .explainer-trigger {
+    .comp-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -653,70 +852,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       user-select: none;
     }
 
-    .explainer-trigger h3 {
+    .comp-header h3 {
       font-family: var(--font-display);
-      font-size: 1.05rem;
+      font-size: 1.1rem;
       font-weight: 700;
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.5rem;
     }
 
-    .toggle-arrow {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      transition: transform 0.2s ease;
-    }
-
-    .toggle-arrow.open {
-      transform: rotate(180deg);
-    }
-
-    .explainer-body {
-      margin-top: 1rem;
-      padding-top: 1rem;
+    .comp-body {
+      margin-top: 1.15rem;
+      padding-top: 1.15rem;
       border-top: 1px solid var(--border-subtle);
       display: none;
     }
 
-    .explainer-body.open {
-      display: block;
-    }
+    .comp-body.open { display: block; }
 
-    .comparison-grid {
+    .diff-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-      margin-top: 0.85rem;
+      gap: 1.15rem;
+      margin-top: 1rem;
     }
 
     @media (max-width: 720px) {
-      .comparison-grid { grid-template-columns: 1fr; }
+      .diff-grid { grid-template-columns: 1fr; }
     }
 
-    .comp-col {
+    .diff-box {
       background: rgba(0, 0, 0, 0.35);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      padding: 0.95rem;
+      padding: 1.1rem;
     }
 
-    .comp-col.failed {
-      border-top: 3px solid var(--rose-500);
-    }
+    .diff-box.failed { border-top: 3px solid var(--rose-500); }
+    .diff-box.passed { border-top: 3px solid var(--emerald-500); }
 
-    .comp-col.passed {
-      border-top: 3px solid var(--emerald-500);
-    }
-
-    .comp-title {
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-      font-weight: 700;
-      margin-bottom: 0.45rem;
-    }
-
-    /* Modal / Drawer */
+    /* Modals & Drawers */
     .modal-backdrop, .drawer-backdrop {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -733,7 +908,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       pointer-events: auto;
     }
 
-    .modal-dialog {
+    .modal-box {
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%) scale(0.96);
@@ -741,7 +916,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background: #0d1322;
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
-      padding: 1.5rem;
+      padding: 1.75rem;
       z-index: 999;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
       opacity: 0;
@@ -749,29 +924,29 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       transition: all 0.2s ease;
     }
 
-    .modal-dialog.active {
+    .modal-box.active {
       opacity: 1;
       pointer-events: auto;
       transform: translate(-50%, -50%) scale(1);
     }
 
-    .modal-header-row {
+    .modal-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1.25rem;
     }
 
-    .modal-header-row h3 {
+    .modal-head h3 {
       font-family: var(--font-display);
-      font-size: 1.15rem;
+      font-size: 1.2rem;
       font-weight: 700;
     }
 
     .inspector-drawer {
       position: fixed;
       top: 0; right: 0; bottom: 0;
-      width: 100%; max-width: 480px;
+      width: 100%; max-width: 500px;
       background: #0d1322;
       border-left: 1px solid var(--border-strong);
       z-index: 999;
@@ -784,21 +959,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .inspector-drawer.active { transform: translateX(0); }
 
-    .drawer-top-bar {
+    .drawer-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.25rem 1.5rem;
+      padding: 1.35rem 1.5rem;
       border-bottom: 1px solid var(--border-subtle);
     }
 
-    .drawer-scroll-body {
-      padding: 1.25rem 1.5rem;
+    .drawer-content {
+      padding: 1.35rem 1.5rem;
       overflow-y: auto;
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 1.15rem;
+      gap: 1.25rem;
     }
 
     .btn-close {
@@ -806,8 +981,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border: 1px solid var(--border-subtle);
       color: var(--text-muted);
       font-size: 1.2rem;
-      width: 30px;
-      height: 30px;
+      width: 32px;
+      height: 32px;
       border-radius: var(--radius-sm);
       cursor: pointer;
     }
@@ -817,34 +992,34 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: white;
     }
 
-    .table-spec {
+    .meta-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       overflow: hidden;
     }
 
-    .table-spec td {
-      padding: 0.5rem 0.75rem;
+    .meta-table td {
+      padding: 0.55rem 0.8rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
 
-    .table-spec td:first-child {
+    .meta-table td:first-child {
       color: var(--text-dim);
       font-family: var(--font-mono);
-      font-size: 0.72rem;
+      font-size: 0.74rem;
       width: 38%;
     }
 
-    .verbatim-quote {
+    .quote-box {
       background: #070a12;
       border: 1px solid rgba(99, 102, 241, 0.25);
       border-radius: var(--radius-md);
-      padding: 0.85rem;
-      font-size: 0.8rem;
+      padding: 0.9rem;
+      font-size: 0.82rem;
       line-height: 1.55;
       color: #cbd5e1;
       font-style: italic;
@@ -852,21 +1027,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="landing-wrap">
     
     <!-- Navbar -->
     <header class="navbar">
-      <div class="brand-group">
+      <div class="brand">
         <div class="brand-icon">
           <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
         </div>
-        <div class="brand-title">
-          PeriodGuard <span class="brand-tag">VERIFICATION ENGINE</span>
+        <div class="brand-text">
+          <h1>PeriodGuard <span class="brand-tag">VERIFICATION ENGINE</span></h1>
         </div>
       </div>
       <div class="nav-actions">
         <button class="btn btn-secondary" onclick="openCorpusModal()">
-          📚 View Filings (<span id="corpusCountBadge">4</span>)
+          📚 Manage Filings (<span id="corpusCountBadge">4</span>)
         </button>
         <button class="btn btn-secondary" onclick="openUploadModal()">
           📄 Upload Filing / PDF
@@ -874,97 +1049,192 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </header>
 
-    <!-- Interactive Prompt Box -->
-    <section class="prompt-box">
-      <label class="box-label">Prompt / Research Question</label>
-      <textarea id="promptInput" class="query-textarea" placeholder="Ask any financial research question (e.g. Did EBITDA margin improve in Q4 FY25?)...">As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.</textarea>
-
-      <div class="inline-controls">
-        <div class="input-group">
-          <label class="input-label">Target Entity</label>
-          <input type="text" id="companyInput" class="input-control" value="Acme Industries">
-        </div>
-        <div class="input-group">
-          <label class="input-label">As-Of Cutoff Date</label>
-          <input type="date" id="asOfDateInput" class="input-control" value="2025-05-15">
-        </div>
-        <div class="input-group">
-          <label class="input-label">Target Period</label>
-          <input type="text" id="periodInput" class="input-control" value="Q4 FY25">
-        </div>
-        <div class="input-group">
-          <label class="input-label">Engine</label>
-          <select id="engineSelect" class="input-control">
-            <option value="deterministic">Deterministic</option>
-            <option value="llm">Live LLM</option>
-          </select>
-        </div>
-        <button id="btnVerify" class="btn btn-primary" onclick="handleVerifyClick()" style="height: 36px;">
-          ⚡ Verify with PeriodGuard
-        </button>
+    <!-- 1. Hero / What PeriodGuard Is About -->
+    <section class="hero-section">
+      <div class="hero-eyebrow">Financial Research Reliability Harness</div>
+      <h2 class="hero-headline">“A citation exists” &ne; “The cited answer is safe to use.”</h2>
+      <p class="hero-thesis">
+        Financial RAG systems often generate plausible answers by quietly pulling from later fiscal years (like citing a 2026 Annual Report for a 2025 question). 
+        PeriodGuard evaluates research pipelines before analysts rely on them.
+      </p>
+      <div class="thesis-callout">
+        🛡️ Evaluates: Temporal As-Of Gating • Entity Boundaries • Numeric Fact Traceability
       </div>
 
-      <div class="sample-pills-row">
-        <span style="font-size: 0.72rem; color: var(--text-dim); margin-right: 0.2rem;">Quick Sample Prompts:</span>
-        <button class="sample-pill" onclick="applyPreset(0)">⚡ Future Leak Trap (May 15)</button>
-        <button class="sample-pill" onclick="applyPreset(1)">⚡ Clean Historical (June 1)</button>
-        <button class="sample-pill" onclick="applyPreset(2)">⚡ Pre-Release Call (May 11)</button>
+      <div class="pillars-grid">
+        <div class="pillar-card">
+          <div class="pillar-icon">⏳</div>
+          <div class="pillar-title">Future-Period Citation Gate</div>
+          <div class="pillar-desc">Detects when an answer cites evidence published after the requested as-of date.</div>
+        </div>
+        <div class="pillar-card">
+          <div class="pillar-icon">🏢</div>
+          <div class="pillar-title">Entity &amp; Period Alignment</div>
+          <div class="pillar-desc">Prevents peer-company contamination and fiscal period mismatch errors.</div>
+        </div>
+        <div class="pillar-card">
+          <div class="pillar-icon">📊</div>
+          <div class="pillar-title">Deterministic Fact Support</div>
+          <div class="pillar-desc">Verifies numbers, units (bps, %), and directional causal claims against verbatim quotes.</div>
+        </div>
       </div>
     </section>
 
-    <!-- Results Presentation -->
-    <main>
-      
-      <!-- Primary Verified Answer Card -->
-      <article class="answer-card">
-        <div class="answer-card-header">
+    <!-- 2. Step 1: Ingest Filings or Use Default Fixture -->
+    <section class="step-section">
+      <div class="step-header">
+        <div>
+          <span class="step-badge">Step 1: Document Corpus</span>
+          <div class="step-title" style="margin-top: 0.35rem;">Choose Your Evidence Corpus</div>
+        </div>
+        <button class="btn btn-secondary" onclick="openCorpusModal()">View Loaded Filings</button>
+      </div>
+
+      <div class="corpus-choice-grid">
+        <!-- Option A: Default Fixture -->
+        <div class="corpus-option-card active" id="cardDefaultCorpus">
           <div>
-            <h2 style="font-family: var(--font-display); font-size: 1.18rem;">Evaluated &amp; Verified Answer</h2>
-            <div style="font-size: 0.78rem; color: var(--text-dim);">Gated by PeriodGuard Deterministic Reliability Validators</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <strong style="font-size: 0.95rem;">Default Financial Corpus (Acme Industries)</strong>
+              <span style="color: var(--emerald-500); font-size: 0.75rem; font-weight: 700;">✓ Active</span>
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-muted);">
+              Includes Q4 FY25 Results (May 10), Q4 Earnings Call (May 12), FY26 Annual Report Trap (Aug 20), and Globex Corp Peer fixture.
+            </p>
           </div>
-          <div id="verifiedBadge" class="status-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
+          <button class="btn btn-secondary" style="align-self: flex-start;" onclick="resetCorpus()">🔄 Restore Defaults</button>
         </div>
 
-        <div id="answerLeadText" class="answer-body-text">
+        <!-- Option B: Upload Real PDF -->
+        <div class="corpus-option-card">
+          <div>
+            <strong style="font-size: 0.95rem;">Upload Custom PDF / Earnings Release</strong>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem;">
+              Ingest any real 10-Q, 10-K, or press release PDF to test custom temporal boundaries and financial metrics.
+            </p>
+          </div>
+          <button class="btn btn-primary" style="align-self: flex-start;" onclick="openUploadModal()">📄 Ingest PDF / Doc</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Step 2: Evaluation Mode Tabs -->
+    <section class="step-section">
+      <div class="step-header">
+        <div>
+          <span class="step-badge">Step 2: Choose Evaluation Mode</span>
+          <div class="step-title" style="margin-top: 0.35rem;">Benchmark Tests or Plain English Query</div>
+        </div>
+      </div>
+
+      <!-- Tabs Navigation -->
+      <div class="tabs-nav">
+        <button class="tab-btn active" id="tabBtnBenchmarks" onclick="switchTab('benchmarks')">
+          ⚡ Mode A: Prewritten Benchmark Tests
+        </button>
+        <button class="tab-btn" id="tabBtnPrompt" onclick="switchTab('prompt')">
+          💬 Mode B: Plain English Prompt
+        </button>
+      </div>
+
+      <!-- Tab A: Prewritten Benchmarks -->
+      <div class="tab-pane active" id="tabPaneBenchmarks">
+        <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Click any benchmark scenario to immediately execute and verify how PeriodGuard catches or passes the case:
+        </div>
+        <div class="benchmarks-grid" id="benchmarksContainer"></div>
+      </div>
+
+      <!-- Tab B: Plain English Prompt -->
+      <div class="tab-pane" id="tabPanePrompt">
+        <div class="prompt-container">
+          <textarea id="promptInput" class="prompt-textarea" placeholder="Ask any financial question in plain English (e.g. Did Acme Industries' EBITDA margin improve in Q4 FY25?)...">As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.</textarea>
+          
+          <div class="prompt-controls-grid">
+            <div>
+              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Target Entity</label>
+              <input type="text" id="companyInput" class="input-field" value="Acme Industries">
+            </div>
+            <div>
+              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">As-Of Cutoff Date</label>
+              <input type="date" id="asOfDateInput" class="input-field" value="2025-05-15">
+            </div>
+            <div>
+              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Reporting Period</label>
+              <input type="text" id="periodInput" class="input-field" value="Q4 FY25">
+            </div>
+            <div>
+              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Engine</label>
+              <select id="engineSelect" class="input-field">
+                <option value="deterministic">Deterministic</option>
+                <option value="llm">Live LLM</option>
+              </select>
+            </div>
+            <button id="btnRunCustomPrompt" class="btn btn-primary" onclick="runCustomPromptEvaluation()" style="height: 36px;">
+              ⚡ Run Evaluation
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Live Results & Verification Presentation -->
+    <main class="results-section">
+      
+      <!-- Primary Verified Answer Card -->
+      <article class="verified-result-card">
+        <div class="result-head">
+          <div>
+            <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Evaluated against 4 PeriodGuard Deterministic Reliability Validators</div>
+          </div>
+          <div id="verifiedBadge" class="gate-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
+        </div>
+
+        <div id="answerLeadText" class="answer-lead">
           Loading verified response...
         </div>
 
-        <div style="font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
-          Traceable Evidence Citations (Click to inspect source)
+        <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
+          Verified Evidence Citations (Click to inspect full document &amp; timeline)
         </div>
         <div id="claimsList" class="claims-list"></div>
       </article>
 
       <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
-      <section class="explainer-card">
-        <div class="explainer-trigger" onclick="toggleExplainer()">
+      <section class="comparison-explainer">
+        <div class="comp-header" onclick="toggleComparison()">
           <h3>
             <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
           </h3>
-          <span class="toggle-arrow" id="explainerArrow">▼</span>
+          <span class="toggle-arrow" id="compArrow">▼</span>
         </div>
         
-        <div class="explainer-body" id="explainerBody">
-          <p style="font-size: 0.84rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
+        <div class="comp-body" id="compBody">
+          <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
             In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
             PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
           </p>
 
-          <div class="comparison-grid">
+          <div class="diff-grid">
             <!-- Broken Naive RAG column -->
-            <div class="comp-col failed">
-              <div class="comp-title" style="color: #fb7185;">✗ Naive RAG (Unfiltered Citation Leak)</div>
-              <div id="naiveRagSummary" style="font-size: 0.8rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
-              <div style="font-size: 0.72rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
+            <div class="diff-box failed">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
+                ✗ Naive RAG (Unfiltered Citation Leak)
+              </div>
+              <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
+              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
             </div>
 
             <!-- PeriodGuard Verified column -->
-            <div class="comp-col passed">
-              <div class="comp-title" style="color: #34d399;">✓ PeriodGuard Gate (Period-Correct)</div>
-              <div style="font-size: 0.8rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
+            <div class="diff-box passed">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
+                ✓ PeriodGuard Gate (Period-Correct)
+              </div>
+              <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
                 Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
               </div>
-              <div style="font-size: 0.72rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
+              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
                 ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
               </div>
             </div>
@@ -978,12 +1248,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   <!-- Document Corpus Modal -->
   <div class="modal-backdrop" id="corpusBackdrop" onclick="closeCorpusModal()"></div>
-  <div class="modal-dialog" id="corpusModal">
-    <div class="modal-header-row">
+  <div class="modal-box" id="corpusModal" style="max-width: 680px;">
+    <div class="modal-head">
       <h3>Active Document Corpus (<span id="corpusModalCount">4</span>)</h3>
       <button class="btn-close" onclick="closeCorpusModal()">×</button>
     </div>
-    <div style="max-height: 320px; overflow-y: auto; margin-bottom: 1.25rem;" id="corpusTableBox"></div>
+    <div style="max-height: 340px; overflow-y: auto; margin-bottom: 1.25rem;" id="corpusTableBox"></div>
     <div style="display: flex; justify-content: space-between;">
       <button class="btn btn-secondary" onclick="resetCorpus()">🔄 Reset to Default Fixture</button>
       <button class="btn btn-primary" onclick="closeCorpusModal()">Done</button>
@@ -992,35 +1262,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   <!-- Upload PDF / Document Modal -->
   <div class="modal-backdrop" id="uploadBackdrop" onclick="closeUploadModal()"></div>
-  <div class="modal-dialog" id="uploadModal">
-    <div class="modal-header-row">
+  <div class="modal-box" id="uploadModal">
+    <div class="modal-head">
       <h3>Ingest Financial Document / PDF</h3>
       <button class="btn-close" onclick="closeUploadModal()">×</button>
     </div>
     <form onsubmit="handleUploadSubmit(event)">
       <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem;">
-        <div class="input-group">
-          <label class="input-label">Select File (.pdf, .txt, .json)</label>
-          <input type="file" id="uploadFileInput" class="input-control" required accept=".pdf,.txt,.json">
+        <div>
+          <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Select File (.pdf, .txt, .json)</label>
+          <input type="file" id="uploadFileInput" class="input-field" required accept=".pdf,.txt,.json">
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
-          <div class="input-group">
-            <label class="input-label">Company</label>
-            <input type="text" id="uploadCompanyInput" class="input-control" value="Acme Industries" required>
+          <div>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Company</label>
+            <input type="text" id="uploadCompanyInput" class="input-field" value="Acme Industries" required>
           </div>
-          <div class="input-group">
-            <label class="input-label">Document Type</label>
-            <input type="text" id="uploadTypeInput" class="input-control" value="Quarterly Results" required>
+          <div>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Document Type</label>
+            <input type="text" id="uploadTypeInput" class="input-field" value="Quarterly Results" required>
           </div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
-          <div class="input-group">
-            <label class="input-label">Publication Date</label>
-            <input type="date" id="uploadDateInput" class="input-control" value="2025-05-10" required>
+          <div>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Publication Date</label>
+            <input type="date" id="uploadDateInput" class="input-field" value="2025-05-10" required>
           </div>
-          <div class="input-group">
-            <label class="input-label">Reporting Period</label>
-            <input type="text" id="uploadPeriodInput" class="input-control" value="Q4 FY25" required>
+          <div>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Reporting Period</label>
+            <input type="text" id="uploadPeriodInput" class="input-field" value="Q4 FY25" required>
           </div>
         </div>
       </div>
@@ -1034,14 +1304,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Evidence Inspector Slide-over Drawer -->
   <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
   <aside class="inspector-drawer" id="inspectorDrawer">
-    <div class="drawer-top-bar">
+    <div class="drawer-head">
       <div>
         <div style="font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase;">Evidence Inspector</div>
-        <h3 id="drawerDocId" style="font-family: var(--font-display); font-size: 1.1rem;">Document Metadata</h3>
+        <h3 id="drawerDocId" style="font-family: var(--font-display); font-size: 1.15rem;">Document Metadata</h3>
       </div>
       <button class="btn-close" onclick="closeDrawer()">×</button>
     </div>
-    <div class="drawer-scroll-body" id="drawerBody"></div>
+    <div class="drawer-content" id="drawerBody"></div>
   </aside>
 
   <script id="initData" type="application/json">__INITIAL_DATA__</script>
@@ -1064,7 +1334,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const isPass = correct.status === 'PASS';
       const badge = document.getElementById('verifiedBadge');
-      badge.className = `status-badge ${isPass ? 'safe' : 'unsafe'}`;
+      badge.className = `gate-badge ${isPass ? 'safe' : 'unsafe'}`;
       badge.textContent = isPass ? '✓ VERIFIED SAFE (Period-Correct)' : '✗ FAILED RELIABILITY GATE';
 
       const claimsBox = document.getElementById('claimsList');
@@ -1084,7 +1354,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         return `
           <div class="claim-item">
-            <div class="claim-meta-row">
+            <div style="display: flex; justify-content: space-between; font-size: 0.84rem; color: #e2e8f0; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
               <span><strong>Metric:</strong> ${escapeHtml(claim.metric || 'N/A')}</span>
               <span><strong>Value:</strong> ${claim.value !== null && claim.value !== undefined ? claim.value : 'N/A'} ${escapeHtml(claim.unit || '')}</span>
               <span><strong>Period:</strong> ${escapeHtml(claim.period || 'N/A')}</span>
@@ -1108,8 +1378,49 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       updateCorpusCount();
     }
 
-    async function handleVerifyClick() {
-      const btn = document.getElementById('btnVerify');
+    function renderBenchmarks() {
+      fetch('/api/presets')
+        .then(r => r.json())
+        .then(presets => {
+          const container = document.getElementById('benchmarksContainer');
+          container.innerHTML = presets.map(p => `
+            <div class="benchmark-card" onclick="runBenchmarkPreset('${escapeHtml(p.id)}')">
+              <div>
+                <div class="benchmark-top">
+                  <span class="badge-pill ${escapeHtml(p.badge_color || 'indigo')}">${escapeHtml(p.badge || 'Benchmark')}</span>
+                  <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">Cutoff: ${escapeHtml(p.as_of_date)}</span>
+                </div>
+                <div style="font-weight: 700; font-size: 0.95rem; margin: 0.4rem 0 0.2rem; color: #ffffff;">${escapeHtml(p.title)}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">${escapeHtml(p.description)}</div>
+              </div>
+              <div style="font-size: 0.76rem; color: var(--cyan-500); font-weight: 600;">⚡ Click to Run Scenario &rarr;</div>
+            </div>
+          `).join('');
+        });
+    }
+
+    function switchTab(tab) {
+      document.getElementById('tabBtnBenchmarks').classList.toggle('active', tab === 'benchmarks');
+      document.getElementById('tabBtnPrompt').classList.toggle('active', tab === 'prompt');
+      document.getElementById('tabPaneBenchmarks').classList.toggle('active', tab === 'benchmarks');
+      document.getElementById('tabPanePrompt').classList.toggle('active', tab === 'prompt');
+    }
+
+    async function runBenchmarkPreset(presetId) {
+      const resp = await fetch('/api/presets');
+      const presets = await resp.json();
+      const p = presets.find(x => x.id === presetId);
+      if (p) {
+        document.getElementById('promptInput').value = p.question;
+        document.getElementById('companyInput').value = p.company;
+        document.getElementById('asOfDateInput').value = p.as_of_date;
+        document.getElementById('periodInput').value = p.as_of_reporting_period;
+        runCustomPromptEvaluation();
+      }
+    }
+
+    async function runCustomPromptEvaluation() {
+      const btn = document.getElementById('btnRunCustomPrompt');
       btn.disabled = true;
       btn.textContent = '⚡ Evaluating...';
 
@@ -1130,48 +1441,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (resp.ok) {
           appState = await resp.json();
           renderUI(appState);
+          // Scroll smoothly to results
+          document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
         }
       } catch (err) {
         console.error(err);
       } finally {
         btn.disabled = false;
-        btn.textContent = '⚡ Verify with PeriodGuard';
+        btn.textContent = '⚡ Run Evaluation';
       }
     }
 
-    const presetsList = [
-      {
-        q: "As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.",
-        c: "Acme Industries",
-        d: "2025-05-15",
-        p: "Q4 FY25"
-      },
-      {
-        q: "What was Acme Industries' sequential EBITDA margin change in Q4 FY25?",
-        c: "Acme Industries",
-        d: "2025-06-01",
-        p: "Q4 FY25"
-      },
-      {
-        q: "What management commentary was provided regarding Q4 FY25 EBITDA margin expansion?",
-        c: "Acme Industries",
-        d: "2025-05-11",
-        p: "Q4 FY25"
-      }
-    ];
-
-    function applyPreset(index) {
-      const p = presetsList[index];
-      document.getElementById('promptInput').value = p.q;
-      document.getElementById('companyInput').value = p.c;
-      document.getElementById('asOfDateInput').value = p.d;
-      document.getElementById('periodInput').value = p.p;
-      handleVerifyClick();
-    }
-
-    function toggleExplainer() {
-      const body = document.getElementById('explainerBody');
-      const arrow = document.getElementById('explainerArrow');
+    function toggleComparison() {
+      const body = document.getElementById('compBody');
+      const arrow = document.getElementById('compArrow');
       body.classList.toggle('open');
       arrow.classList.toggle('open');
     }
@@ -1189,7 +1472,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('drawerBody').innerHTML = `
         <div>
           <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Document Metadata</div>
-          <table class="table-spec">
+          <table class="meta-table">
             <tr><td>Document Type</td><td>${escapeHtml(doc.doc_type)}</td></tr>
             <tr><td>Entity</td><td>${escapeHtml(doc.company)}</td></tr>
             <tr><td>Publication Date</td><td style="font-family: var(--font-mono); color: ${isFuture ? '#fb7185' : '#34d399'}; font-weight: 700;">${escapeHtml(doc.publication_date)}</td></tr>
@@ -1210,7 +1493,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         <div>
           <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Verbatim Evidence Quote</div>
-          <div class="verbatim-quote">"${escapeHtml(quotedText || doc.text)}"</div>
+          <div class="quote-box">"${escapeHtml(quotedText || doc.text)}"</div>
         </div>
       `;
 
@@ -1243,7 +1526,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const docs = await resp.json();
         const box = document.getElementById('corpusTableBox');
         box.innerHTML = `
-          <table class="table-spec">
+          <table class="meta-table">
             <thead>
               <tr style="background: rgba(255,255,255,0.04); font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">
                 <th style="padding: 0.5rem 0.75rem; text-align: left;">ID</th>
@@ -1276,7 +1559,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (confirm('Reset corpus to original fixture?')) {
         await fetch('/api/corpus/reset', { method: 'POST' });
         closeCorpusModal();
-        handleVerifyClick();
+        runCustomPromptEvaluation();
       }
     }
 
@@ -1311,7 +1594,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (resp.ok) {
           alert('Document ingested into PeriodGuard corpus!');
           closeUploadModal();
-          handleVerifyClick();
+          runCustomPromptEvaluation();
         } else {
           const err = await resp.json();
           alert('Upload failed: ' + (err.detail || 'Error'));
@@ -1326,6 +1609,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     // Initial render
     renderUI(appState);
+    renderBenchmarks();
   </script>
 </body>
 </html>
@@ -1336,4 +1620,4 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 def render_dashboard(use_llm: bool = Query(False)) -> str:
     data = execute_evaluation(get_default_case(), use_llm=use_llm)
     json_str = json.dumps(data).replace("</", "<\\/")
-    return DASHBOARD_HTML.replace("__INITIAL_DATA__", json_str)
+    return LANDING_PAGE_HTML.replace("__INITIAL_DATA__", json_str)

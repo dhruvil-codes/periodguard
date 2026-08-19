@@ -39,7 +39,7 @@ def test_presets_endpoint(client):
     presets = response.json()
     assert len(presets) >= 3
     preset_ids = [p["id"] for p in presets]
-    assert "future_leak_default" in preset_ids
+    assert any("future_leak" in pid for pid in preset_ids)
 
 
 def test_corpus_endpoints(client):
@@ -106,4 +106,4 @@ def test_dashboard_html_render(client):
     assert "text/html" in response.headers["content-type"]
     assert "PeriodGuard" in response.text
     assert "VERIFICATION ENGINE" in response.text
-    assert "View Filings" in response.text
+    assert "Manage Filings" in response.text
