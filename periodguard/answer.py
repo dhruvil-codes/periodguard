@@ -9,11 +9,30 @@ from typing import List, Optional
 from periodguard.models import Citation, Claim, Document, RetrievalMode, StructuredAnswer
 
 
+def _extract_sentences(text: str) -> List[str]:
+    """Split text into sentences cleanly."""
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 15]
+
+
+def _score_sentence(sentence: str, query_tokens: List[str]) -> float:
+    s_lower = sentence.lower()
+    score = 0.0
+    for tok in query_tokens:
+        if tok in s_lower:
+            score += 2.0
+    # boost sentences with financial numbers or metrics
+    if re.search(r"\b\d+(\.\d+)?\b", sentence):
+        score += 1.0
+    if any(m in s_lower for m in ["ebitda", "margin", "revenue", "bps", "%", "profit", "growth"]):
+        score += 1.5
+    return score
+
+
 class AnswerSynthesizer:
     """
-    Synthesizes structured claims and citations based on retrieved evidence.
-    Handles standard fixtures deterministically, and dynamically synthesizes
-    claims from any custom uploaded PDF/document.
+    RAG Answer Synthesizer:
+    Takes retrieved documents and the user's plain-English question, performs
+    sentence-level extractive passage synthesis, and outputs atomic Claims with Citations.
     """
 
     @staticmethod
@@ -28,10 +47,15 @@ class AnswerSynthesizer:
                 claims=[],
             )
 
-        doc_ids = [d.id for d in retrieved_docs]
+        q_lower = (query or "").lower().strip()
+        q_tokens = [t for t in re.findall(r"\b[a-zA-Z0-9_]+\b", q_lower) if t not in {"what", "is", "the", "about", "did", "in", "and", "to", "of", "a"}]
 
-        # If broken mode retrieved the future FY26 report, simulate an answer citing that report
-        if "acme_fy26_annual_report" in doc_ids:
+        # Check if the future FY26 leak document was retrieved (broken mode leak condition)
+        doc_ids = [d.id for d in retrieved_docs]
+        has_future_leak = "acme_fy26_annual_report" in doc_ids
+
+        # If future leak is present and evaluating standard/EBITDA cases, include the future leak citation
+        if has_future_leak and ("ebitda" in q_lower or "margin" in q_lower or not q_tokens or "q4" in q_lower):
             return StructuredAnswer(
                 text="Acme Industries' EBITDA margin improved by 40 bps sequentially in Q4 FY25 versus Q3 FY25. Management noted in subsequent review that freight savings drove this improvement before early FY26 tariff pressures.",
                 claims=[
@@ -66,76 +90,62 @@ class AnswerSynthesizer:
                 ],
             )
 
-        # Standard fixture matches
-        if any(d.id in {"acme_q4_fy25_results", "acme_q4_fy25_earnings_call"} for d in retrieved_docs):
-            claims: List[Claim] = []
-            if "acme_q4_fy25_results" in doc_ids:
-                claims.append(
-                    Claim(
-                        text="Acme Industries' EBITDA margin increased by 40 bps sequentially to 18.4% in Q4 FY25 compared to 18.0% in Q3 FY25.",
-                        metric="EBITDA margin",
-                        value=40.0,
-                        unit="bps",
-                        period="Q4 FY25 vs Q3 FY25",
-                        citations=[
-                            Citation(
-                                document_id="acme_q4_fy25_results",
-                                page=12,
-                                quoted_text="EBITDA margin increased by 40 bps sequentially to 18.4% compared to 18.0% in Q3 FY25.",
-                            )
-                        ],
-                    )
-                )
+        # General Plain English RAG Synthesizer
+        claims: List[Claim] = []
+        answer_parts: List[str] = []
 
-            if "acme_q4_fy25_earnings_call" in doc_ids:
-                claims.append(
-                    Claim(
-                        text="Management stated the EBITDA margin expansion was primarily driven by lower ocean freight rates and automation efficiencies.",
-                        metric="EBITDA margin",
-                        value=40.0,
-                        unit="bps",
-                        period="Q4 FY25 vs Q3 FY25",
-                        citations=[
-                            Citation(
-                                document_id="acme_q4_fy25_earnings_call",
-                                page=4,
-                                quoted_text="Our EBITDA margin expansion of 40 bps in Q4 FY25 versus Q3 FY25 was primarily driven by lower ocean freight rates, plant automation efficiencies, and favorable product mix in our specialty materials segment.",
-                            )
-                        ],
-                    )
-                )
+        # Is the query asking general overview? (e.g. "What is the document about?", "overview", "summary")
+        is_overview_query = any(k in q_lower for k in ["what is the document about", "what is this document", "summary", "overview", "about", "what do these documents"]) or not q_tokens
 
-            if claims:
-                return StructuredAnswer(
-                    text="Acme Industries' EBITDA margin improved by 40 bps sequentially in Q4 FY25 versus Q3 FY25 to 18.4%, driven by lower ocean freight rates and plant automation efficiencies.",
-                    claims=claims,
-                )
-
-        # Dynamic fallback for custom uploaded files / queries
-        claims = []
-        synthesized_sentences = []
         for doc in retrieved_docs:
-            sentences = [s.strip() for s in re.split(r"(?<=[.!?]) +", doc.text) if len(s.strip()) > 20]
-            if sentences:
-                best_sentence = sentences[0]
-                synthesized_sentences.append(best_sentence)
+            sentences = _extract_sentences(doc.text)
+            if not sentences:
+                continue
 
-                # Extract first number if any
+            if is_overview_query:
+                # Extract first prominent factual sentence summarizing document
+                best_sentence = sentences[0]
+                answer_parts.append(f"According to {doc.doc_type} ({doc.id}), {best_sentence}")
+                
+                # Check for metrics
                 num_match = re.search(r"\b\d+(\.\d+)?\b", best_sentence)
                 val = float(num_match.group(0)) if num_match else None
-
-                unit = None
-                if "%" in best_sentence:
-                    unit = "%"
-                elif "bps" in best_sentence.lower():
-                    unit = "bps"
-                elif "$" in best_sentence or "usd" in best_sentence.lower():
-                    unit = "USD"
+                unit = "bps" if "bps" in best_sentence.lower() else ("%" if "%" in best_sentence else ("USD" if "$" in best_sentence else None))
 
                 claims.append(
                     Claim(
                         text=best_sentence,
-                        metric=doc.doc_type or "Financial Metric",
+                        metric=doc.doc_type,
+                        value=val,
+                        unit=unit,
+                        period=doc.reporting_period,
+                        citations=[
+                            Citation(
+                                document_id=doc.id,
+                                page=doc.page or 1,
+                                quoted_text=best_sentence,
+                            )
+                        ],
+                    )
+                )
+            else:
+                # Specific query matching: score sentences
+                scored_sentences = [(s, _score_sentence(s, q_tokens)) for s in sentences]
+                scored_sentences.sort(key=lambda x: -x[1])
+                best_sentence = scored_sentences[0][0]
+                answer_parts.append(best_sentence)
+
+                num_match = re.search(r"\b\d+(\.\d+)?\b", best_sentence)
+                val = float(num_match.group(0)) if num_match else None
+                unit = "bps" if "bps" in best_sentence.lower() else ("%" if "%" in best_sentence else ("USD" if "$" in best_sentence else None))
+
+                # Identify metric name from tokens or doc
+                metric_name = "EBITDA margin" if "margin" in best_sentence.lower() else ("Revenue" if "revenue" in best_sentence.lower() else doc.doc_type)
+
+                claims.append(
+                    Claim(
+                        text=best_sentence,
+                        metric=metric_name,
                         value=val,
                         unit=unit,
                         period=doc.reporting_period,
@@ -149,8 +159,8 @@ class AnswerSynthesizer:
                     )
                 )
 
-        full_text = " ".join(synthesized_sentences) if synthesized_sentences else f"Evidence retrieved from {len(retrieved_docs)} filings."
-        return StructuredAnswer(text=full_text, claims=claims)
+        full_answer_text = " ".join(answer_parts) if answer_parts else f"Extracted evidence from {len(retrieved_docs)} filings."
+        return StructuredAnswer(text=full_answer_text, claims=claims)
 
 
 class LLMAnswerAdapter:

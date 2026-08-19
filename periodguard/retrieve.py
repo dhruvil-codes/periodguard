@@ -15,28 +15,30 @@ def _tokenize(text: str) -> List[str]:
 
 def score_document(query: str, doc: Document) -> float:
     """
-    Deterministic BM25-like token overlap scoring between query and document text.
-    Gives additional weight to exact financial period/metric tokens.
+    Deterministic token overlap scoring between query and document text.
+    Gives baseline score for company matches and additional weight to exact financial period/metric tokens.
     """
     query_tokens = _tokenize(query)
     doc_tokens = _tokenize(doc.text) + _tokenize(doc.reporting_period) + _tokenize(doc.doc_type)
 
+    # Baseline score so any document in candidate pool has positive ranking
+    score = 1.0
+
     if not query_tokens or not doc_tokens:
-        return 0.0
+        return score
 
     doc_token_counts = {}
     for token in doc_tokens:
         doc_token_counts[token] = doc_token_counts.get(token, 0) + 1
 
-    score = 0.0
     for q_token in set(query_tokens):
         # Ignore common stop words
-        if q_token in {"the", "and", "or", "did", "in", "of", "to", "what", "as", "a", "is"}:
+        if q_token in {"the", "and", "or", "did", "in", "of", "to", "what", "as", "a", "is", "about", "for"}:
             continue
         count = doc_token_counts.get(q_token, 0)
         if count > 0:
             # Boost high-signal financial tokens
-            weight = 3.0 if q_token in {"ebitda", "margin", "q4", "fy25", "q3", "reason", "management"} else 1.0
+            weight = 3.0 if q_token in {"ebitda", "margin", "q4", "fy25", "q3", "reason", "management", "revenue", "document", "report", "call"} else 1.5
             score += weight * (1.0 + (count / len(doc_tokens)))
 
     return score
