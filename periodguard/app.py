@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage.",
-    version="2.2.0",
+    version="2.3.0",
 )
 
 app.add_middleware(
@@ -492,7 +492,6 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       display: inline-block;
     }
 
-    /* Feature Pillars Grid */
     .pillars-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -683,127 +682,96 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     .badge-pill.amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
     .badge-pill.indigo { background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.35); }
 
-    /* Mode B: Plain English Prompt Controls */
-    .prompt-container {
+    /* Mode B: Chat-Like Financial AI Workbench */
+    .chat-container {
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 1.25rem;
     }
 
-    .prompt-textarea {
-      width: 100%;
-      background: rgba(0, 0, 0, 0.45);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-md);
-      color: #ffffff;
-      font-family: var(--font-body);
-      font-size: 1rem;
-      padding: 0.85rem 1rem;
-      line-height: 1.5;
-      resize: vertical;
-      min-height: 72px;
-    }
-
-    .prompt-textarea:focus {
-      outline: none;
-      border-color: var(--cyan-500);
-      box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
-    }
-
-    .prompt-controls-grid {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr auto;
-      gap: 0.65rem;
-      align-items: flex-end;
-    }
-
-    @media (max-width: 900px) {
-      .prompt-controls-grid { grid-template-columns: 1fr 1fr; }
-    }
-    @media (max-width: 480px) {
-      .prompt-controls-grid { grid-template-columns: 1fr; }
-    }
-
-    .input-field {
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      color: #ffffff;
-      font-family: var(--font-body);
-      font-size: 0.84rem;
-      padding: 0.45rem 0.65rem;
-      width: 100%;
-    }
-
-    /* 4. Live Results & Verification Section */
-    .results-section {
-      margin-top: 1.5rem;
+    .chat-log {
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 1.25rem;
+      max-height: 600px;
+      overflow-y: auto;
+      padding-right: 0.5rem;
     }
 
-    .verified-result-card {
-      background: var(--bg-card);
+    .chat-bubble-user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, #3b82f6, #4f46e5);
+      color: white;
+      padding: 0.85rem 1.2rem;
+      border-radius: 14px 14px 2px 14px;
+      max-width: 80%;
+      font-size: 0.96rem;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
+    }
+
+    .chat-bubble-assistant {
+      align-self: flex-start;
+      background: var(--bg-card-elevated);
       border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: 1.75rem;
-      box-shadow: 0 10px 32px rgba(0,0,0,0.35);
+      padding: 1.25rem 1.4rem;
+      border-radius: 14px 14px 14px 2px;
+      max-width: 95%;
+      width: 100%;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
     }
 
-    .result-head {
+    .assistant-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.15rem;
+      margin-bottom: 0.75rem;
       flex-wrap: wrap;
-      gap: 0.6rem;
+      gap: 0.5rem;
     }
 
     .gate-badge {
       font-family: var(--font-mono);
-      font-size: 0.82rem;
+      font-size: 0.76rem;
       font-weight: 700;
-      padding: 0.35rem 0.85rem;
+      padding: 0.25rem 0.65rem;
       border-radius: var(--radius-full);
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
     }
 
     .gate-badge.safe {
       background: var(--emerald-bg);
       color: var(--emerald-500);
       border: 1px solid var(--emerald-border);
-      box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
     }
 
     .gate-badge.unsafe {
       background: var(--rose-bg);
       color: var(--rose-500);
       border: 1px solid var(--rose-border);
-      box-shadow: 0 0 16px rgba(244, 63, 94, 0.15);
     }
 
-    .answer-lead {
-      font-size: 1.1rem;
+    .chat-answer-text {
+      font-size: 1.02rem;
       color: #ffffff;
       line-height: 1.6;
-      font-weight: 500;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1rem;
     }
 
-    .claims-list {
+    .citations-section-title {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }
+
+    .citations-grid {
       display: flex;
       flex-direction: column;
-      gap: 0.85rem;
-    }
-
-    .claim-item {
-      background: var(--bg-card-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 0.95rem 1.15rem;
+      gap: 0.5rem;
     }
 
     .citation-btn {
@@ -819,7 +787,6 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       display: block;
       width: 100%;
       text-align: left;
-      margin-top: 0.4rem;
     }
 
     .citation-btn:hover {
@@ -837,12 +804,91 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       margin-bottom: 0.2rem;
     }
 
+    .chat-input-wrapper {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .chat-textarea {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      line-height: 1.5;
+      resize: none;
+      min-height: 52px;
+    }
+
+    .chat-textarea:focus { outline: none; }
+
+    .chat-controls-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 0.75rem;
+    }
+
+    .inline-param-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .param-input {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: #ffffff;
+      font-family: var(--font-body);
+      font-size: 0.78rem;
+      padding: 0.3rem 0.55rem;
+    }
+
+    .sample-prompts-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .sample-pill {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 0.2rem 0.5rem;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .sample-pill:hover {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: var(--indigo-500);
+      color: #ffffff;
+    }
+
     /* Comparison Box */
     .comparison-explainer {
       background: linear-gradient(145deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
       border: 1px solid rgba(99, 102, 241, 0.3);
       border-radius: var(--radius-lg);
       padding: 1.35rem 1.6rem;
+      margin-top: 1.5rem;
     }
 
     .comp-header {
@@ -1124,126 +1170,113 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <div class="step-header">
         <div>
           <span class="step-badge">Step 2: Choose Evaluation Mode</span>
-          <div class="step-title" style="margin-top: 0.35rem;">Benchmark Tests or Plain English Query</div>
+          <div class="step-title" style="margin-top: 0.35rem;">Benchmark Tests or Financial AI Chat Assistant</div>
         </div>
       </div>
 
       <!-- Tabs Navigation -->
       <div class="tabs-nav">
-        <button class="tab-btn active" id="tabBtnBenchmarks" onclick="switchTab('benchmarks')">
+        <button class="tab-btn" id="tabBtnBenchmarks" onclick="switchTab('benchmarks')">
           ⚡ Mode A: Prewritten Benchmark Tests
         </button>
-        <button class="tab-btn" id="tabBtnPrompt" onclick="switchTab('prompt')">
-          💬 Mode B: Plain English Prompt
+        <button class="tab-btn active" id="tabBtnPrompt" onclick="switchTab('prompt')">
+          💬 Mode B: Financial AI Chat Assistant
         </button>
       </div>
 
       <!-- Tab A: Prewritten Benchmarks -->
-      <div class="tab-pane active" id="tabPaneBenchmarks">
+      <div class="tab-pane" id="tabPaneBenchmarks">
         <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
           Click any benchmark scenario to immediately execute and verify how PeriodGuard catches or passes the case:
         </div>
         <div class="benchmarks-grid" id="benchmarksContainer"></div>
       </div>
 
-      <!-- Tab B: Plain English Prompt -->
-      <div class="tab-pane" id="tabPanePrompt">
-        <div class="prompt-container">
-          <textarea id="promptInput" class="prompt-textarea" placeholder="Ask any financial question in plain English (e.g. What is the EBITDA margin of Acme Industries? or What was revenue?)...">What is the EBITDA Margin of Acme Industries?</textarea>
+      <!-- Tab B: Chat-Like Financial AI Workbench -->
+      <div class="tab-pane active" id="tabPanePrompt">
+        <div class="chat-container">
           
-          <div class="prompt-controls-grid">
-            <div>
-              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Target Entity</label>
-              <input type="text" id="companyInput" class="input-field" value="Acme Industries">
-            </div>
-            <div>
-              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">As-Of Cutoff Date</label>
-              <input type="date" id="asOfDateInput" class="input-field" value="2025-05-15">
-            </div>
-            <div>
-              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Reporting Period</label>
-              <input type="text" id="periodInput" class="input-field" value="Q4 FY25">
-            </div>
-            <div>
-              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Engine</label>
-              <select id="engineSelect" class="input-field" onchange="toggleApiKeyField()">
-                <option value="deterministic">Deterministic RAG</option>
-                <option value="llm">Live LLM (Groq/OpenAI)</option>
-              </select>
-            </div>
-            <div id="apiKeyCol" style="display: none;">
-              <label style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">API Key (Groq / OpenAI)</label>
-              <input type="password" id="apiKeyInput" class="input-field" placeholder="gsk_... or sk-...">
-            </div>
-            <button id="btnRunCustomPrompt" class="btn btn-primary" onclick="runCustomPromptEvaluation()" style="height: 36px;">
-              ⚡ Run Evaluation
-            </button>
+          <!-- Live Chat Log -->
+          <div class="chat-log" id="chatLog">
+            <!-- Initial Assistant Bubble rendered via JS -->
           </div>
+
+          <!-- Chat Input Bar -->
+          <div class="chat-input-wrapper">
+            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question in plain English (e.g. What does Acme Industries do? or What was Q4 EBITDA margin?)..." onkeydown="handleTextareaKeyDown(event)"></textarea>
+            
+            <div class="chat-controls-bar">
+              <div class="inline-param-group">
+                <span style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-family: var(--font-mono);">As-Of:</span>
+                <input type="date" id="asOfDateInput" class="param-input" value="2025-05-15" title="As-Of Date Cutoff">
+                <input type="text" id="companyInput" class="param-input" value="Acme Industries" style="width: 120px;" title="Company Name">
+                <input type="text" id="periodInput" class="param-input" value="Q4 FY25" style="width: 75px;" title="Reporting Period">
+                <select id="engineSelect" class="param-input" onchange="toggleApiKeyField()">
+                  <option value="deterministic">Deterministic RAG</option>
+                  <option value="llm">Live LLM (Groq/OpenAI)</option>
+                </select>
+                <input type="password" id="apiKeyInput" class="param-input" placeholder="API Key (Optional)" style="display: none; width: 130px;">
+              </div>
+
+              <button id="btnRunCustomPrompt" class="btn btn-primary" onclick="sendChatMessage()">
+                <span>⚡ Ask Assistant</span>
+              </button>
+            </div>
+
+            <!-- Quick Suggestions -->
+            <div class="sample-prompts-bar">
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Suggestions:</span>
+              <button class="sample-pill" onclick="setChatPrompt('What does Acme Industries do?')">What does Acme Industries do?</button>
+              <button class="sample-pill" onclick="setChatPrompt('What was the EBITDA margin of Acme Industries in Q4 FY25?')">Q4 EBITDA margin?</button>
+              <button class="sample-pill" onclick="setChatPrompt('What was total net revenue for Q4 FY25?')">Q4 Total Revenue?</button>
+              <button class="sample-pill" onclick="setChatPrompt('As of 15 May 2025, did Acme Industries EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give?')">Future Leak Trap</button>
+            </div>
+
+          </div>
+
         </div>
       </div>
 
-      <!-- 4. Live Evaluated Output (Right Here in Step 2 Section) -->
-      <div class="results-section">
-        <article class="verified-result-card">
-          <div class="result-head">
-            <div>
-              <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
-              <div style="font-size: 0.8rem; color: var(--text-dim);">Evaluated against 4 PeriodGuard Deterministic Reliability Validators</div>
-            </div>
-            <div id="verifiedBadge" class="gate-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
-          </div>
+      <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
+      <section class="comparison-explainer">
+        <div class="comp-header" onclick="toggleComparison()">
+          <h3>
+            <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
+          </h3>
+          <span class="toggle-arrow" id="compArrow">▼</span>
+        </div>
+        
+        <div class="comp-body" id="compBody">
+          <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
+            In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
+            PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
+          </p>
 
-          <div id="answerLeadText" class="answer-lead">
-            Loading verified response...
-          </div>
-
-          <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
-            Verified Evidence Citations (Click to inspect full document &amp; timeline)
-          </div>
-          <div id="claimsList" class="claims-list"></div>
-        </article>
-
-        <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
-        <section class="comparison-explainer">
-          <div class="comp-header" onclick="toggleComparison()">
-            <h3>
-              <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
-            </h3>
-            <span class="toggle-arrow" id="compArrow">▼</span>
-          </div>
-          
-          <div class="comp-body" id="compBody">
-            <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
-              In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
-              PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
-            </p>
-
-            <div class="diff-grid">
-              <!-- Broken Naive RAG column -->
-              <div class="diff-box failed">
-                <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
-                  ✗ Naive RAG (Unfiltered Citation Leak)
-                </div>
-                <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
-                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
+          <div class="diff-grid">
+            <!-- Broken Naive RAG column -->
+            <div class="diff-box failed">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
+                ✗ Naive RAG (Unfiltered Citation Leak)
               </div>
+              <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
+              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
+            </div>
 
-              <!-- PeriodGuard Verified column -->
-              <div class="diff-box passed">
-                <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
-                  ✓ PeriodGuard Gate (Period-Correct)
-                </div>
-                <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
-                  Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
-                </div>
-                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
-                  ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
-                </div>
+            <!-- PeriodGuard Verified column -->
+            <div class="diff-box passed">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
+                ✓ PeriodGuard Gate (Period-Correct)
+              </div>
+              <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
+                Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
+              </div>
+              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
+                ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
               </div>
             </div>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
 
     </section>
 
@@ -1274,26 +1307,26 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem;">
         <div>
           <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Select File (.pdf, .txt, .json)</label>
-          <input type="file" id="uploadFileInput" class="input-field" required accept=".pdf,.txt,.json">
+          <input type="file" id="uploadFileInput" class="param-input" style="width:100%;" required accept=".pdf,.txt,.json">
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div>
             <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Company</label>
-            <input type="text" id="uploadCompanyInput" class="input-field" value="Acme Industries" required>
+            <input type="text" id="uploadCompanyInput" class="param-input" style="width:100%;" value="Acme Industries" required>
           </div>
           <div>
             <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Document Type</label>
-            <input type="text" id="uploadTypeInput" class="input-field" value="Quarterly Results" required>
+            <input type="text" id="uploadTypeInput" class="param-input" style="width:100%;" value="Quarterly Results" required>
           </div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div>
             <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Publication Date</label>
-            <input type="date" id="uploadDateInput" class="input-field" value="2025-05-10" required>
+            <input type="date" id="uploadDateInput" class="param-input" style="width:100%;" value="2025-05-10" required>
           </div>
           <div>
             <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Reporting Period</label>
-            <input type="text" id="uploadPeriodInput" class="input-field" value="Q4 FY25" required>
+            <input type="text" id="uploadPeriodInput" class="param-input" style="width:100%;" value="Q4 FY25" required>
           </div>
         </div>
       </div>
@@ -1329,26 +1362,17 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
     function toggleApiKeyField() {
       const isLlm = document.getElementById('engineSelect').value === 'llm';
-      document.getElementById('apiKeyCol').style.display = isLlm ? 'block' : 'none';
+      document.getElementById('apiKeyInput').style.display = isLlm ? 'inline-block' : 'none';
     }
 
-    function renderUI(data) {
-      const correct = data.correct_mode;
-      const broken = data.broken_mode;
-
-      document.getElementById('answerLeadText').textContent = correct.answer_text || (correct.claims && correct.claims.length > 0
-        ? correct.claims.map(c => c.text).join(' ')
-        : "No safe eligible evidence was found published on or before the requested cutoff date.");
-
+    function renderChatMessage(question, reportData) {
+      const correct = reportData.correct_mode;
+      const broken = reportData.broken_mode;
       const isPass = correct.status === 'PASS';
-      const badge = document.getElementById('verifiedBadge');
-      badge.className = `gate-badge ${isPass ? 'safe' : 'unsafe'}`;
-      badge.textContent = isPass ? '✓ VERIFIED SAFE (Period-Correct)' : '✗ FAILED RELIABILITY GATE';
 
-      const claimsBox = document.getElementById('claimsList');
-      claimsBox.innerHTML = correct.claims.map(claim => {
-        const citsHtml = claim.citations.map(cit => {
-          const doc = correct.retrieved_documents.find(d => d.id === cit.document_id) || {};
+      const citationsHtml = (correct.claims || []).map(claim => {
+        return (claim.citations || []).map(cit => {
+          const doc = (correct.retrieved_documents || []).find(d => d.id === cit.document_id) || {};
           return `
             <button class="citation-btn" onclick="openInspector('${escapeHtml(cit.document_id)}', '${escapeHtml(cit.quoted_text)}')">
               <div class="cit-top">
@@ -1359,31 +1383,48 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
             </button>
           `;
         }).join('');
-
-        return `
-          <div class="claim-item">
-            <div style="display: flex; justify-content: space-between; font-size: 0.84rem; color: #e2e8f0; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
-              <span><strong>Metric:</strong> ${escapeHtml(claim.metric || 'N/A')}</span>
-              <span><strong>Value:</strong> ${claim.value !== null && claim.value !== undefined ? claim.value : 'N/A'} ${escapeHtml(claim.unit || '')}</span>
-              <span><strong>Period:</strong> ${escapeHtml(claim.period || 'N/A')}</span>
-            </div>
-            ${citsHtml}
-          </div>
-        `;
       }).join('');
 
+      const assistantHtml = `
+        <div class="chat-bubble-assistant">
+          <div class="assistant-head">
+            <div style="font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: #93c5fd; display: flex; align-items: center; gap: 0.4rem;">
+              <span>🤖</span> PeriodGuard Verified Research Assistant
+            </div>
+            <div class="gate-badge ${isPass ? 'safe' : 'unsafe'}">
+              ${isPass ? '✓ VERIFIED SAFE (Period-Correct)' : '🚨 FAILED TEMPORAL GATE'}
+            </div>
+          </div>
+          
+          <div class="chat-answer-text">
+            ${escapeHtml(correct.answer_text || (correct.claims && correct.claims.length > 0 ? correct.claims.map(c => c.text).join(' ') : 'No safe evidence published on or before cutoff date.'))}
+          </div>
+
+          ${citationsHtml ? `
+            <div class="citations-section-title">Verified Evidence Citations (Click to inspect source):</div>
+            <div class="citations-grid">${citationsHtml}</div>
+          ` : ''}
+        </div>
+      `;
+
+      const chatLog = document.getElementById('chatLog');
+      if (question) {
+        chatLog.innerHTML += `<div class="chat-bubble-user">${escapeHtml(question)}</div>`;
+      }
+      chatLog.innerHTML += assistantHtml;
+      chatLog.scrollTop = chatLog.scrollHeight;
+
+      // Update comparison banner details
       const fail = broken.failures.find(f => f.type === 'FUTURE_PERIOD_LEAK') || broken.failures[0];
       if (fail) {
         document.getElementById('naiveRagSummary').innerHTML = `
-          Naive RAG retrieved <strong>${escapeHtml(fail.document_id)}</strong> and generated a fluent answer citing future metrics.
+          Naive RAG retrieved <strong>${escapeHtml(fail.document_id)}</strong> and generated an answer citing future metrics.
         `;
         document.getElementById('naiveRagFailDetails').textContent = `🚨 Leakage Detected: Published ${fail.publication_date} vs As-Of ${fail.as_of_date} (+${Math.round((new Date(fail.publication_date) - new Date(fail.as_of_date))/(1000*60*60*24))} days in future)`;
       } else {
         document.getElementById('naiveRagSummary').textContent = "Both modes passed for this specific cutoff boundary.";
         document.getElementById('naiveRagFailDetails').textContent = "No temporal leakage triggered.";
       }
-
-      updateCorpusCount();
     }
 
     function renderBenchmarks() {
@@ -1414,32 +1455,51 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       document.getElementById('tabPanePrompt').classList.toggle('active', tab === 'prompt');
     }
 
+    function setChatPrompt(text) {
+      document.getElementById('promptInput').value = text;
+      sendChatMessage();
+    }
+
+    function handleTextareaKeyDown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    }
+
     async function runBenchmarkPreset(presetId) {
       const resp = await fetch('/api/presets');
       const presets = await resp.json();
       const p = presets.find(x => x.id === presetId);
       if (p) {
+        switchTab('prompt');
         document.getElementById('promptInput').value = p.question;
         document.getElementById('companyInput').value = p.company;
         document.getElementById('asOfDateInput').value = p.as_of_date;
         document.getElementById('periodInput').value = p.as_of_reporting_period;
-        runCustomPromptEvaluation();
+        sendChatMessage();
       }
     }
 
-    async function runCustomPromptEvaluation() {
+    async function sendChatMessage() {
+      const promptInput = document.getElementById('promptInput');
+      const question = promptInput.value.trim();
+      if (!question) return;
+
       const btn = document.getElementById('btnRunCustomPrompt');
       btn.disabled = true;
-      btn.textContent = '⚡ Evaluating...';
+      btn.innerHTML = '<span>⚡ Evaluating...</span>';
 
       const payload = {
-        question: document.getElementById('promptInput').value,
+        question: question,
         company: document.getElementById('companyInput').value,
         as_of_date: document.getElementById('asOfDateInput').value,
         as_of_reporting_period: document.getElementById('periodInput').value,
         use_llm: document.getElementById('engineSelect').value === 'llm',
-        api_key: document.getElementById('apiKeyInput')?.value || null
+        api_key: document.getElementById('apiKeyInput').value || null
       };
+
+      promptInput.value = '';
 
       try {
         const resp = await fetch('/api/evaluate/custom', {
@@ -1449,13 +1509,13 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         });
         if (resp.ok) {
           appState = await resp.json();
-          renderUI(appState);
+          renderChatMessage(question, appState);
         }
       } catch (err) {
         console.error(err);
       } finally {
         btn.disabled = false;
-        btn.textContent = '⚡ Run Evaluation';
+        btn.innerHTML = '<span>⚡ Ask Assistant</span>';
       }
     }
 
@@ -1566,7 +1626,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       if (confirm('Reset corpus to original fixture?')) {
         await fetch('/api/corpus/reset', { method: 'POST' });
         closeCorpusModal();
-        runCustomPromptEvaluation();
+        sendChatMessage();
       }
     }
 
@@ -1601,7 +1661,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         if (resp.ok) {
           alert('Document ingested into PeriodGuard corpus!');
           closeUploadModal();
-          runCustomPromptEvaluation();
+          sendChatMessage();
         } else {
           const err = await resp.json();
           alert('Upload failed: ' + (err.detail || 'Error'));
@@ -1615,8 +1675,9 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     }
 
     // Initial render
-    renderUI(appState);
+    renderChatMessage(null, appState);
     renderBenchmarks();
+    updateCorpusCount();
   </script>
 </body>
 </html>
