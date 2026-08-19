@@ -36,8 +36,8 @@ except ImportError:
 
 app = FastAPI(
     title="PeriodGuard",
-    description="Evaluation harness for financial research systems detecting future-period citation leakage.",
-    version="2.4.0",
+    description="Evaluation harness for financial research systems detecting future-period citation leakage across financial PDFs and filings.",
+    version="2.5.0",
 )
 
 app.add_middleware(
@@ -177,7 +177,7 @@ def add_document_manual(payload: AddDocumentRequest) -> Dict[str, Any]:
 async def upload_document_file(
     file: UploadFile = File(...),
     company: str = Form("Acme Industries"),
-    doc_type: str = Form("Financial Filing"),
+    doc_type: str = Form("10-Q Quarterly Report"),
     reporting_period: str = Form("Q4 FY25"),
     publication_date: str = Form("2025-05-10"),
     custom_doc_id: Optional[str] = Form(None),
@@ -192,12 +192,14 @@ async def upload_document_file(
     doc_id = (custom_doc_id or Path(filename).stem).lower().replace(" ", "_")
 
     extracted_text = ""
+    page_count = 1
     if filename.lower().endswith(".pdf"):
         if not PYPDF_AVAILABLE:
             raise HTTPException(status_code=500, detail="PDF parsing library (pypdf) is unavailable.")
         try:
             reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-            pages_text = [page.extract_text() for page in reader.pages if page.extract_text()]
+            page_count = len(reader.pages)
+            pages_text = [f"[Page {i+1}]\n" + page.extract_text() for i, page in enumerate(reader.pages) if page.extract_text()]
             extracted_text = "\n\n".join(pages_text)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
@@ -208,7 +210,7 @@ async def upload_document_file(
             extracted_text = file_bytes.decode("latin-1")
 
     if not extracted_text.strip():
-        extracted_text = f"Sample financial text content extracted from {filename}."
+        extracted_text = f"Sample financial filing text extracted from {filename}."
 
     doc = Document(
         id=doc_id,
@@ -218,13 +220,13 @@ async def upload_document_file(
         publication_date=pub_date,
         page=1,
         text=extracted_text.strip(),
-        source_url=f"Local Upload: {filename}",
+        source_url=f"PDF Ingestion: {filename} ({page_count} pages)",
     )
     active_corpus._documents[doc.id] = doc
 
     return {
         "status": "success",
-        "message": f"File '{filename}' successfully ingested as document ID '{doc.id}'.",
+        "message": f"File '{filename}' ({page_count} pages) successfully ingested as document ID '{doc.id}'.",
         "doc": doc.model_dump(mode="json"),
     }
 
@@ -450,7 +452,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       color: white;
     }
 
-    /* 1. Hero / Product Overview Section */
+    /* 1. Hero Section */
     .hero-section {
       text-align: center;
       padding: 1.5rem 0 2.5rem;
@@ -538,6 +540,32 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       font-size: 0.8rem;
       color: var(--text-muted);
       line-height: 1.45;
+    }
+
+    /* Supported PDF Types Guide */
+    .supported-reports-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.85rem;
+      margin-top: 1.2rem;
+    }
+
+    .report-type-card {
+      background: var(--bg-card-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      font-size: 0.8rem;
+    }
+
+    .report-type-name {
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-bottom: 0.25rem;
     }
 
     /* 2. Step 1: Document Corpus Setup */
@@ -815,7 +843,6 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       margin-bottom: 0.2rem;
     }
 
-    /* Inline Validation Breakdown Accordion inside message */
     .validation-breakdown-box {
       margin-top: 0.85rem;
       padding-top: 0.75rem;
@@ -1006,7 +1033,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%) scale(0.96);
-      width: 92%; max-width: 620px;
+      width: 92%; max-width: 640px;
       background: #0d1322;
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-lg);
@@ -1119,7 +1146,6 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       font-style: italic;
     }
 
-    /* Guide Modal Styling */
     .guide-section-box {
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid var(--border-subtle);
@@ -1166,51 +1192,54 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         <button class="btn btn-secondary" onclick="openCorpusModal()">
           📚 Manage Filings (<span id="corpusCountBadge">4</span>)
         </button>
-        <button class="btn btn-secondary" onclick="openUploadModal()">
-          📄 Upload Filing / PDF
+        <button class="btn btn-primary" onclick="openUploadModal()">
+          📄 Upload Financial PDF
         </button>
       </div>
     </header>
 
-    <!-- 1. Hero / What PeriodGuard Is About -->
+    <!-- 1. Hero Section -->
     <section class="hero-section">
-      <div class="hero-eyebrow">Financial Research Reliability Harness</div>
+      <div class="hero-eyebrow">Financial Research Reliability &amp; Fact Gating Engine</div>
       <h2 class="hero-headline">“A citation exists” &ne; “The cited answer is safe to use.”</h2>
       <p class="hero-thesis">
-        Financial RAG systems often generate plausible answers by quietly pulling from later fiscal years (like citing a 2026 Annual Report for a 2025 question). 
-        PeriodGuard evaluates research pipelines before analysts rely on them.
+        Financial RAG systems frequently hallucinate reliability by quietly pulling from later fiscal years (like citing a 2026 Annual Report for a 2025 query). 
+        PeriodGuard evaluates any financial Q&amp;A pipeline against temporal cutoff dates, entity boundaries, and verbatim evidence support.
       </p>
       <div class="thesis-callout">
-        🛡️ Evaluates: Temporal As-Of Gating • Entity Boundaries • Numeric Fact Traceability
+        🛡️ Works with any 10-Q, 10-K, Earnings Call, 8-K, Investor Deck, or Custom Financial PDF
       </div>
 
       <div class="pillars-grid">
         <div class="pillar-card">
           <div class="pillar-icon">⏳</div>
           <div class="pillar-title">Future-Period Citation Gate</div>
-          <div class="pillar-desc">Detects when an answer cites evidence published after the requested as-of date.</div>
+          <div class="pillar-desc">Guarantees that no citation originates from a filing published after the as-of cutoff date.</div>
         </div>
         <div class="pillar-card">
           <div class="pillar-icon">🏢</div>
           <div class="pillar-title">Entity &amp; Period Alignment</div>
-          <div class="pillar-desc">Prevents peer-company contamination and fiscal period mismatch errors.</div>
+          <div class="pillar-desc">Prevents cross-company contamination and fiscal period mismatch errors.</div>
         </div>
         <div class="pillar-card">
           <div class="pillar-icon">📊</div>
           <div class="pillar-title">Deterministic Fact Support</div>
-          <div class="pillar-desc">Verifies numbers, units (bps, %), and directional causal claims against verbatim quotes.</div>
+          <div class="pillar-desc">Verifies numbers, units (bps, %, $), and qualitative management commentary against verbatim quotes.</div>
         </div>
       </div>
     </section>
 
-    <!-- 2. Step 1: Ingest Filings or Use Default Fixture -->
+    <!-- 2. Step 1: Document Corpus Setup & Supported PDF Types -->
     <section class="step-section">
       <div class="step-header">
         <div>
-          <span class="step-badge">Step 1: Document Corpus</span>
-          <div class="step-title" style="margin-top: 0.35rem;">Choose Your Evidence Corpus</div>
+          <span class="step-badge">Step 1: Financial Document Corpus</span>
+          <div class="step-title" style="margin-top: 0.35rem;">Ingest Any Financial PDF or Use Sample Fixture</div>
         </div>
-        <button class="btn btn-secondary" onclick="openCorpusModal()">View Loaded Filings</button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-secondary" onclick="openCorpusModal()">View Loaded Filings</button>
+          <button class="btn btn-primary" onclick="openUploadModal()">+ Ingest PDF</button>
+        </div>
       </div>
 
       <div class="corpus-choice-grid">
@@ -1218,11 +1247,11 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         <div class="corpus-option-card active" id="cardDefaultCorpus">
           <div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-              <strong style="font-size: 0.95rem;">Default Financial Corpus (Acme Industries)</strong>
+              <strong style="font-size: 0.95rem;">Sample Financial Corpus (Acme Industries Benchmark)</strong>
               <span style="color: var(--emerald-500); font-size: 0.75rem; font-weight: 700;">✓ Active</span>
             </div>
             <p style="font-size: 0.8rem; color: var(--text-muted);">
-              Includes Q4 FY25 Results (May 10), Q4 Earnings Call (May 12), FY26 Annual Report Trap (Aug 20), and Globex Corp Peer fixture.
+              Preloaded with Q4 FY25 Results (May 10), Q4 Earnings Call (May 12), FY26 Annual Report Trap (Aug 20), and Globex Corp Peer fixture.
             </p>
           </div>
           <button class="btn btn-secondary" style="align-self: flex-start;" onclick="resetCorpus()">🔄 Restore Defaults</button>
@@ -1231,14 +1260,48 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         <!-- Option B: Upload Real PDF -->
         <div class="corpus-option-card">
           <div>
-            <strong style="font-size: 0.95rem;">Upload Custom PDF / Earnings Release</strong>
+            <strong style="font-size: 0.95rem;">Ingest Your Own Financial PDFs</strong>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem;">
-              Ingest any real 10-Q, 10-K, or press release PDF to test custom temporal boundaries and financial metrics.
+              Upload real SEC 10-Qs, 10-Ks, or earnings call PDFs. PeriodGuard indexes text page-by-page and evaluates retrieval against your custom as-of cutoff date.
             </p>
           </div>
-          <button class="btn btn-primary" style="align-self: flex-start;" onclick="openUploadModal()">📄 Ingest PDF / Doc</button>
+          <button class="btn btn-primary" style="align-self: flex-start;" onclick="openUploadModal()">📄 Ingest Financial PDF</button>
         </div>
       </div>
+
+      <!-- Supported Report Types Guide -->
+      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-subtle);">
+        <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700; margin-bottom: 0.6rem;">
+          Supported Financial Document &amp; PDF Types:
+        </div>
+        <div class="supported-reports-grid">
+          <div class="report-type-card">
+            <div class="report-type-name"><span>📑</span> 10-Q Quarterly Reports</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem;">Quarterly income statements, EBITDA margins, segment revenue breakdowns.</div>
+          </div>
+          <div class="report-type-card">
+            <div class="report-type-name"><span>📑</span> 10-K Annual Reports</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem;">Consolidated audited statements, balance sheets, full-year GAAP metrics, risk factors.</div>
+          </div>
+          <div class="report-type-card">
+            <div class="report-type-name"><span>🎙️</span> Earnings Call Transcripts</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem;">CEO/CFO remarks, macroeconomic drivers, freight/tariff commentary, Q&amp;A sessions.</div>
+          </div>
+          <div class="report-type-card">
+            <div class="report-type-name"><span>⚡</span> 8-K Filings &amp; Press Releases</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem;">Material unscheduled corporate events, acquisitions, guidance adjustments.</div>
+          </div>
+          <div class="report-type-card">
+            <div class="report-type-name"><span>📊</span> Investor Presentations</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem;">Capital allocation plans, long-term CAGR targets, investor day slide decks.</div>
+          </div>
+          <div class="report-type-card">
+            <div class="report-type-name"><span>📈</span> Equity Research Reports</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem;">Analyst valuation models, price targets, discount rate assumptions.</div>
+          </div>
+        </div>
+      </div>
+
     </section>
 
     <!-- 3. Step 2: Evaluation Mode Tabs -->
@@ -1277,13 +1340,13 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
           <!-- Chat Input Bar -->
           <div class="chat-input-wrapper">
-            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question in plain English (e.g. What does Acme Industries do? or What was Q4 EBITDA margin?)..." onkeydown="handleTextareaKeyDown(event)"></textarea>
+            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question across your ingested PDFs in plain English (e.g. What does Acme Industries do? or What was net revenue in Q4?)..." onkeydown="handleTextareaKeyDown(event)"></textarea>
             
             <div class="chat-controls-bar">
               <div class="inline-param-group">
                 <span style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-family: var(--font-mono);">As-Of:</span>
                 <input type="date" id="asOfDateInput" class="param-input" value="2025-05-15" title="As-Of Date Cutoff">
-                <input type="text" id="companyInput" class="param-input" value="Acme Industries" style="width: 120px;" title="Company Name">
+                <input type="text" id="companyInput" class="param-input" value="Acme Industries" style="width: 120px;" title="Company Name (Leave blank to search all)">
                 <input type="text" id="periodInput" class="param-input" value="Q4 FY25" style="width: 75px;" title="Reporting Period">
                 <select id="engineSelect" class="param-input" onchange="toggleApiKeyField()">
                   <option value="deterministic">Deterministic RAG</option>
@@ -1414,39 +1477,53 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
   <div class="modal-backdrop" id="uploadBackdrop" onclick="closeUploadModal()"></div>
   <div class="modal-box" id="uploadModal">
     <div class="modal-head">
-      <h3>Ingest Financial Document / PDF</h3>
+      <h3>📄 Ingest Financial PDF / Filing</h3>
       <button class="btn-close" onclick="closeUploadModal()">×</button>
     </div>
     <form onsubmit="handleUploadSubmit(event)">
-      <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem;">
+      <div style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.25rem;">
         <div>
-          <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Select File (.pdf, .txt, .json)</label>
-          <input type="file" id="uploadFileInput" class="param-input" style="width:100%;" required accept=".pdf,.txt,.json">
+          <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Select PDF or Text File (.pdf, .txt, .json)</label>
+          <input type="file" id="uploadFileInput" class="param-input" style="width:100%; margin-top: 0.25rem;" required accept=".pdf,.txt,.json" onchange="autoFillUploadMeta(event)">
         </div>
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Company</label>
-            <input type="text" id="uploadCompanyInput" class="param-input" style="width:100%;" value="Acme Industries" required>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Company / Entity</label>
+            <input type="text" id="uploadCompanyInput" class="param-input" style="width:100%; margin-top: 0.25rem;" value="Acme Industries" required placeholder="e.g. Acme Industries, Apple, Tesla">
           </div>
           <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Document Type</label>
-            <input type="text" id="uploadTypeInput" class="param-input" style="width:100%;" value="Quarterly Results" required>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Document Type</label>
+            <select id="uploadTypeInput" class="param-input" style="width:100%; margin-top: 0.25rem;">
+              <option value="10-Q Quarterly Report">10-Q Quarterly Report</option>
+              <option value="10-K Annual Report">10-K Annual Report</option>
+              <option value="Earnings Call Transcript">Earnings Call Transcript</option>
+              <option value="8-K Material Filing">8-K Material Filing</option>
+              <option value="Investor Deck">Investor Deck</option>
+              <option value="Equity Research Report">Equity Research Report</option>
+              <option value="Financial Press Release">Financial Press Release</option>
+            </select>
           </div>
         </div>
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Publication Date</label>
-            <input type="date" id="uploadDateInput" class="param-input" style="width:100%;" value="2025-05-10" required>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Publication Date</label>
+            <input type="date" id="uploadDateInput" class="param-input" style="width:100%; margin-top: 0.25rem;" value="2025-05-10" required>
           </div>
           <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Reporting Period</label>
-            <input type="text" id="uploadPeriodInput" class="param-input" style="width:100%;" value="Q4 FY25" required>
+            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Reporting Period</label>
+            <input type="text" id="uploadPeriodInput" class="param-input" style="width:100%; margin-top: 0.25rem;" value="Q4 FY25" required placeholder="e.g. Q4 FY25, FY25, Q1 2025">
           </div>
+        </div>
+
+        <div style="padding: 0.6rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 6px; font-size: 0.75rem; color: #a5b4fc;">
+          💡 <strong>Tip for Testing Temporal Leaks:</strong> Ingest an older 10-Q (e.g. May 2025) and a newer 10-K (e.g. Aug 2025). Set your chat cutoff date to May 2025 and ask a question to test if naive RAG leaks future data!
         </div>
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
         <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
-        <button type="submit" id="btnUploadSubmit" class="btn btn-primary">Ingest Document</button>
+        <button type="submit" id="btnUploadSubmit" class="btn btn-primary">Ingest PDF &amp; Index Text</button>
       </div>
     </form>
   </div>
@@ -1487,6 +1564,20 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     function closeGuideModal() {
       document.getElementById('guideModal').classList.remove('active');
       document.getElementById('guideBackdrop').classList.remove('active');
+    }
+
+    function autoFillUploadMeta(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const name = file.name.toLowerCase();
+        if (name.includes('10-k') || name.includes('annual')) {
+          document.getElementById('uploadTypeInput').value = '10-K Annual Report';
+        } else if (name.includes('10-q') || name.includes('quarter') || name.includes('q4') || name.includes('q3')) {
+          document.getElementById('uploadTypeInput').value = '10-Q Quarterly Report';
+        } else if (name.includes('call') || name.includes('transcript')) {
+          document.getElementById('uploadTypeInput').value = 'Earnings Call Transcript';
+        }
+      }
     }
 
     function renderChatMessage(question, reportData) {
@@ -1754,6 +1845,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
               <tr style="background: rgba(255,255,255,0.04); font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">
                 <th style="padding: 0.5rem 0.75rem; text-align: left;">ID</th>
                 <th style="padding: 0.5rem 0.75rem; text-align: left;">Company</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: left;">Doc Type</th>
                 <th style="padding: 0.5rem 0.75rem; text-align: left;">Period</th>
                 <th style="padding: 0.5rem 0.75rem; text-align: left;">Published</th>
               </tr>
@@ -1763,6 +1855,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
                 <tr>
                   <td style="font-family: var(--font-mono); color: #93c5fd;">${escapeHtml(d.id)}</td>
                   <td>${escapeHtml(d.company)}</td>
+                  <td>${escapeHtml(d.doc_type)}</td>
                   <td>${escapeHtml(d.reporting_period)}</td>
                   <td style="font-family: var(--font-mono);">${escapeHtml(d.publication_date)}</td>
                 </tr>
@@ -1783,6 +1876,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         await fetch('/api/corpus/reset', { method: 'POST' });
         closeCorpusModal();
         sendChatMessage();
+        updateCorpusCount();
       }
     }
 
@@ -1800,7 +1894,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       e.preventDefault();
       const btn = document.getElementById('btnUploadSubmit');
       btn.disabled = true;
-      btn.textContent = 'Ingesting...';
+      btn.textContent = 'Ingesting & Parsing PDF...';
 
       const formData = new FormData();
       formData.append('file', document.getElementById('uploadFileInput').files[0]);
@@ -1815,9 +1909,15 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
           body: formData
         });
         if (resp.ok) {
-          alert('Document ingested into PeriodGuard corpus!');
+          const res = await resp.json();
+          alert('✓ Success: ' + res.message);
           closeUploadModal();
-          sendChatMessage();
+          updateCorpusCount();
+          
+          // Switch to chat with new company prefilled
+          document.getElementById('companyInput').value = document.getElementById('uploadCompanyInput').value;
+          document.getElementById('periodInput').value = document.getElementById('uploadPeriodInput').value;
+          switchTab('prompt');
         } else {
           const err = await resp.json();
           alert('Upload failed: ' + (err.detail || 'Error'));
@@ -1826,7 +1926,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         alert('Upload error: ' + err.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Ingest Document';
+        btn.textContent = 'Ingest PDF & Index Text';
       }
     }
 
