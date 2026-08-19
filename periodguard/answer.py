@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.request
 import urllib.error
 from typing import List, Optional
@@ -10,12 +11,23 @@ from periodguard.models import Citation, Claim, Document, RetrievalMode, Structu
 
 class AnswerSynthesizer:
     """
-    Deterministic synthesizer for structured claims and citations based on retrieved evidence.
-    Ensures 100% reproducible, zero-cost execution for tests and offline evaluation.
+    Synthesizes structured claims and citations based on retrieved evidence.
+    Handles standard fixtures deterministically, and dynamically synthesizes
+    claims from any custom uploaded PDF/document.
     """
 
     @staticmethod
-    def generate_answer(retrieved_docs: List[Document], mode: RetrievalMode = RetrievalMode.CORRECT) -> StructuredAnswer:
+    def generate_answer(
+        retrieved_docs: List[Document],
+        mode: RetrievalMode = RetrievalMode.CORRECT,
+        query: str = "",
+    ) -> StructuredAnswer:
+        if not retrieved_docs:
+            return StructuredAnswer(
+                text="No eligible evidence documents were found matching your criteria and as-of cutoff date.",
+                claims=[],
+            )
+
         doc_ids = [d.id for d in retrieved_docs]
 
         # If broken mode retrieved the future FY26 report, simulate an answer citing that report
@@ -54,48 +66,91 @@ class AnswerSynthesizer:
                 ],
             )
 
-        # Standard correct answer citing Q4 FY25 Results and Earnings Call
-        claims: List[Claim] = []
-        if "acme_q4_fy25_results" in doc_ids:
-            claims.append(
-                Claim(
-                    text="Acme Industries' EBITDA margin increased by 40 bps sequentially to 18.4% in Q4 FY25 compared to 18.0% in Q3 FY25.",
-                    metric="EBITDA margin",
-                    value=40.0,
-                    unit="bps",
-                    period="Q4 FY25 vs Q3 FY25",
-                    citations=[
-                        Citation(
-                            document_id="acme_q4_fy25_results",
-                            page=12,
-                            quoted_text="EBITDA margin increased by 40 bps sequentially to 18.4% compared to 18.0% in Q3 FY25.",
-                        )
-                    ],
+        # Standard fixture matches
+        if any(d.id in {"acme_q4_fy25_results", "acme_q4_fy25_earnings_call"} for d in retrieved_docs):
+            claims: List[Claim] = []
+            if "acme_q4_fy25_results" in doc_ids:
+                claims.append(
+                    Claim(
+                        text="Acme Industries' EBITDA margin increased by 40 bps sequentially to 18.4% in Q4 FY25 compared to 18.0% in Q3 FY25.",
+                        metric="EBITDA margin",
+                        value=40.0,
+                        unit="bps",
+                        period="Q4 FY25 vs Q3 FY25",
+                        citations=[
+                            Citation(
+                                document_id="acme_q4_fy25_results",
+                                page=12,
+                                quoted_text="EBITDA margin increased by 40 bps sequentially to 18.4% compared to 18.0% in Q3 FY25.",
+                            )
+                        ],
+                    )
                 )
-            )
 
-        if "acme_q4_fy25_earnings_call" in doc_ids:
-            claims.append(
-                Claim(
-                    text="Management stated the EBITDA margin expansion was primarily driven by lower ocean freight rates and automation efficiencies.",
-                    metric="EBITDA margin",
-                    value=40.0,
-                    unit="bps",
-                    period="Q4 FY25 vs Q3 FY25",
-                    citations=[
-                        Citation(
-                            document_id="acme_q4_fy25_earnings_call",
-                            page=4,
-                            quoted_text="Our EBITDA margin expansion of 40 bps in Q4 FY25 versus Q3 FY25 was primarily driven by lower ocean freight rates, plant automation efficiencies, and favorable product mix in our specialty materials segment.",
-                        )
-                    ],
+            if "acme_q4_fy25_earnings_call" in doc_ids:
+                claims.append(
+                    Claim(
+                        text="Management stated the EBITDA margin expansion was primarily driven by lower ocean freight rates and automation efficiencies.",
+                        metric="EBITDA margin",
+                        value=40.0,
+                        unit="bps",
+                        period="Q4 FY25 vs Q3 FY25",
+                        citations=[
+                            Citation(
+                                document_id="acme_q4_fy25_earnings_call",
+                                page=4,
+                                quoted_text="Our EBITDA margin expansion of 40 bps in Q4 FY25 versus Q3 FY25 was primarily driven by lower ocean freight rates, plant automation efficiencies, and favorable product mix in our specialty materials segment.",
+                            )
+                        ],
+                    )
                 )
-            )
 
-        return StructuredAnswer(
-            text="Acme Industries' EBITDA margin improved by 40 bps sequentially in Q4 FY25 versus Q3 FY25 to 18.4%, driven by lower ocean freight rates and plant automation efficiencies.",
-            claims=claims,
-        )
+            if claims:
+                return StructuredAnswer(
+                    text="Acme Industries' EBITDA margin improved by 40 bps sequentially in Q4 FY25 versus Q3 FY25 to 18.4%, driven by lower ocean freight rates and plant automation efficiencies.",
+                    claims=claims,
+                )
+
+        # Dynamic fallback for custom uploaded files / queries
+        claims = []
+        synthesized_sentences = []
+        for doc in retrieved_docs:
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?]) +", doc.text) if len(s.strip()) > 20]
+            if sentences:
+                best_sentence = sentences[0]
+                synthesized_sentences.append(best_sentence)
+
+                # Extract first number if any
+                num_match = re.search(r"\b\d+(\.\d+)?\b", best_sentence)
+                val = float(num_match.group(0)) if num_match else None
+
+                unit = None
+                if "%" in best_sentence:
+                    unit = "%"
+                elif "bps" in best_sentence.lower():
+                    unit = "bps"
+                elif "$" in best_sentence or "usd" in best_sentence.lower():
+                    unit = "USD"
+
+                claims.append(
+                    Claim(
+                        text=best_sentence,
+                        metric=doc.doc_type or "Financial Metric",
+                        value=val,
+                        unit=unit,
+                        period=doc.reporting_period,
+                        citations=[
+                            Citation(
+                                document_id=doc.id,
+                                page=doc.page or 1,
+                                quoted_text=best_sentence,
+                            )
+                        ],
+                    )
+                )
+
+        full_text = " ".join(synthesized_sentences) if synthesized_sentences else f"Evidence retrieved from {len(retrieved_docs)} filings."
+        return StructuredAnswer(text=full_text, claims=claims)
 
 
 class LLMAnswerAdapter:
@@ -127,7 +182,7 @@ class LLMAnswerAdapter:
         mode: RetrievalMode = RetrievalMode.CORRECT,
     ) -> StructuredAnswer:
         if not self.is_available:
-            return AnswerSynthesizer.generate_answer(retrieved_docs, mode)
+            return AnswerSynthesizer.generate_answer(retrieved_docs, mode, query=query)
 
         doc_context = "\n\n".join([
             f"Document ID: {d.id}\nCompany: {d.company}\nDoc Type: {d.doc_type}\nPeriod: {d.reporting_period}\nPublished Date: {d.publication_date}\nPage: {d.page}\nContent: {d.text}"
@@ -184,5 +239,4 @@ class LLMAnswerAdapter:
                 parsed_json = json.loads(content)
                 return StructuredAnswer(**parsed_json)
         except Exception:
-            # On network or formatting failure, fallback to deterministic synthesizer
-            return AnswerSynthesizer.generate_answer(retrieved_docs, mode)
+            return AnswerSynthesizer.generate_answer(retrieved_docs, mode, query=query)

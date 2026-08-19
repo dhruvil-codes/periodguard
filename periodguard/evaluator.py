@@ -93,7 +93,7 @@ class Evaluator:
                 mode=mode,
             )
         else:
-            answer = AnswerSynthesizer.generate_answer(retrieved_docs, mode)
+            answer = AnswerSynthesizer.generate_answer(retrieved_docs, mode, query=case.question)
 
         # Step 3: Run validators
         checks: Dict[str, ValidationStatus] = {}

@@ -105,5 +105,5 @@ def test_dashboard_html_render(client):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "PeriodGuard" in response.text
-    assert "WORKBENCH" in response.text
-    assert "Manage Corpus" in response.text
+    assert "VERIFICATION ENGINE" in response.text
+    assert "View Filings" in response.text
