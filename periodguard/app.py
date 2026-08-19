@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage.",
-    version="2.1.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -77,7 +77,7 @@ class AddDocumentRequest(BaseModel):
 
 BENCHMARK_TESTS = [
     {
-        "id": "future_leak_default",
+        "id": "future_leak_trap",
         "title": "Future-Period Leak Trap",
         "badge": "High-Signal Trap",
         "badge_color": "rose",
@@ -736,7 +736,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
     /* 4. Live Results & Verification Section */
     .results-section {
-      margin-top: 1.5rem;
+      margin-top: 2rem;
       display: flex;
       flex-direction: column;
       gap: 1.5rem;
@@ -1148,7 +1148,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <!-- Tab B: Plain English Prompt -->
       <div class="tab-pane" id="tabPanePrompt">
         <div class="prompt-container">
-          <textarea id="promptInput" class="prompt-textarea" placeholder="Ask any financial question in plain English (e.g. What is the document about? or What was revenue?)...">What is the Document about?</textarea>
+          <textarea id="promptInput" class="prompt-textarea" placeholder="Ask any financial question in plain English (e.g. Did Acme Industries' EBITDA margin improve in Q4 FY25?)...">As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.</textarea>
           
           <div class="prompt-controls-grid">
             <div>
@@ -1176,71 +1176,73 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
           </div>
         </div>
       </div>
-
-      <!-- 4. Live Evaluated Output (Right Here in Step 2 Section) -->
-      <div class="results-section">
-        <article class="verified-result-card">
-          <div class="result-head">
-            <div>
-              <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
-              <div style="font-size: 0.8rem; color: var(--text-dim);">Evaluated against 4 PeriodGuard Deterministic Reliability Validators</div>
-            </div>
-            <div id="verifiedBadge" class="gate-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
-          </div>
-
-          <div id="answerLeadText" class="answer-lead">
-            Loading verified response...
-          </div>
-
-          <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
-            Verified Evidence Citations (Click to inspect full document &amp; timeline)
-          </div>
-          <div id="claimsList" class="claims-list"></div>
-        </article>
-
-        <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
-        <section class="comparison-explainer">
-          <div class="comp-header" onclick="toggleComparison()">
-            <h3>
-              <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
-            </h3>
-            <span class="toggle-arrow" id="compArrow">▼</span>
-          </div>
-          
-          <div class="comp-body" id="compBody">
-            <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
-              In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
-              PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
-            </p>
-
-            <div class="diff-grid">
-              <!-- Broken Naive RAG column -->
-              <div class="diff-box failed">
-                <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
-                  ✗ Naive RAG (Unfiltered Citation Leak)
-                </div>
-                <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
-                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
-              </div>
-
-              <!-- PeriodGuard Verified column -->
-              <div class="diff-box passed">
-                <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
-                  ✓ PeriodGuard Gate (Period-Correct)
-                </div>
-                <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
-                  Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
-                </div>
-                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
-                  ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
     </section>
+
+    <!-- 4. Live Results & Verification Presentation -->
+    <main class="results-section">
+      
+      <!-- Primary Verified Answer Card -->
+      <article class="verified-result-card">
+        <div class="result-head">
+          <div>
+            <h2 style="font-family: var(--font-display); font-size: 1.25rem;">Evaluated &amp; Verified Answer</h2>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Evaluated against 4 PeriodGuard Deterministic Reliability Validators</div>
+          </div>
+          <div id="verifiedBadge" class="gate-badge safe">✓ VERIFIED SAFE FOR ANALYSIS</div>
+        </div>
+
+        <div id="answerLeadText" class="answer-lead">
+          Loading verified response...
+        </div>
+
+        <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem;">
+          Verified Evidence Citations (Click to inspect full document &amp; timeline)
+        </div>
+        <div id="claimsList" class="claims-list"></div>
+      </article>
+
+      <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
+      <section class="comparison-explainer">
+        <div class="comp-header" onclick="toggleComparison()">
+          <h3>
+            <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
+          </h3>
+          <span class="toggle-arrow" id="compArrow">▼</span>
+        </div>
+        
+        <div class="comp-body" id="compBody">
+          <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
+            In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
+            PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
+          </p>
+
+          <div class="diff-grid">
+            <!-- Broken Naive RAG column -->
+            <div class="diff-box failed">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
+                ✗ Naive RAG (Unfiltered Citation Leak)
+              </div>
+              <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
+              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
+            </div>
+
+            <!-- PeriodGuard Verified column -->
+            <div class="diff-box passed">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
+                ✓ PeriodGuard Gate (Period-Correct)
+              </div>
+              <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
+                Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
+              </div>
+              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
+                ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
 
   </div>
 
@@ -1327,7 +1329,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       const broken = data.broken_mode;
 
       document.getElementById('answerLeadText').textContent = correct.claims && correct.claims.length > 0
-        ? (correct.answer_text || correct.claims.map(c => c.text).join(' '))
+        ? `"${correct.claims.map(c => c.text).join(' ')}"`
         : "No safe eligible evidence was found published on or before the requested cutoff date.";
 
       const isPass = correct.status === 'PASS';
@@ -1439,6 +1441,8 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         if (resp.ok) {
           appState = await resp.json();
           renderUI(appState);
+          // Scroll smoothly to results
+          document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
         }
       } catch (err) {
         console.error(err);
