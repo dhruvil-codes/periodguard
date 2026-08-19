@@ -4,7 +4,7 @@ import json
 from datetime import date
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,7 +25,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-evaluator = Evaluator()
+evaluator_deterministic = Evaluator(use_llm=False)
+evaluator_llm = Evaluator(use_llm=True)
 _latest_reports_cache: Dict[str, EvaluationReport] = {}
 
 
@@ -35,21 +36,24 @@ def health_check() -> Dict[str, str]:
 
 
 @app.post("/evaluate")
-def run_evaluation() -> Dict[str, Any]:
+def run_evaluation(use_llm: bool = Query(False, description="Enable live LLM adapter")) -> Dict[str, Any]:
     global _latest_reports_cache
-    reports = evaluator.run_both_modes()
+    ev = evaluator_llm if use_llm else evaluator_deterministic
+    reports = ev.run_both_modes()
     _latest_reports_cache = reports
     return {
+        "mode_type": "llm" if use_llm else "deterministic",
         "correct_mode": reports["correct_mode"].model_dump(mode="json"),
         "broken_mode": reports["broken_mode"].model_dump(mode="json"),
     }
 
 
 @app.get("/report")
-def get_report() -> Dict[str, Any]:
+def get_report(use_llm: bool = Query(False, description="Enable live LLM adapter")) -> Dict[str, Any]:
     global _latest_reports_cache
     if not _latest_reports_cache:
-        _latest_reports_cache = evaluator.run_both_modes()
+        ev = evaluator_llm if use_llm else evaluator_deterministic
+        _latest_reports_cache = ev.run_both_modes()
     return {
         "correct_mode": _latest_reports_cache["correct_mode"].model_dump(mode="json"),
         "broken_mode": _latest_reports_cache["broken_mode"].model_dump(mode="json"),
@@ -57,10 +61,10 @@ def get_report() -> Dict[str, Any]:
 
 
 @app.get("/", response_class=HTMLResponse)
-def render_dashboard() -> str:
+def render_dashboard(use_llm: bool = Query(False, description="Enable live LLM adapter")) -> str:
     global _latest_reports_cache
-    if not _latest_reports_cache:
-        _latest_reports_cache = evaluator.run_both_modes()
+    ev = evaluator_llm if use_llm else evaluator_deterministic
+    _latest_reports_cache = ev.run_both_modes()
 
     correct = _latest_reports_cache["correct_mode"]
     broken = _latest_reports_cache["broken_mode"]
@@ -134,6 +138,8 @@ def render_dashboard() -> str:
                 </div>
             """)
         return "".join(items)
+
+    engine_tag = "Live LLM Adapter" if (use_llm and evaluator_llm.llm_adapter.is_available) else "Deterministic Fixture"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -213,6 +219,17 @@ def render_dashboard() -> str:
         .btn-rerun:hover {{
             background: linear-gradient(135deg, #1d4ed8, #1e40af);
             transform: translateY(-1px);
+        }}
+        .engine-badge {{
+            display: inline-block;
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 6px;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
         }}
         .case-banner {{
             background-color: var(--bg-card);
@@ -412,6 +429,7 @@ def render_dashboard() -> str:
             <div class="logo-group">
                 <h1>PeriodGuard</h1>
                 <p>Financial Research Citation Leakage & Temporal Reliability Evaluation Harness</p>
+                <div class="engine-badge">Engine: {engine_tag}</div>
             </div>
             <button class="btn-rerun" onclick="location.reload()">⚡ Re-run Evaluation</button>
         </header>

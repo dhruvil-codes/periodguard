@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import argparse
 from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from periodguard.answer import AnswerSynthesizer
+from periodguard.answer import AnswerSynthesizer, LLMAnswerAdapter
 from periodguard.corpus import Corpus
 from periodguard.models import (
     EvaluationCase,
@@ -38,9 +39,14 @@ def get_default_case() -> EvaluationCase:
 
 
 class Evaluator:
-    """Orchestrates retrieval, answer generation, deterministic validation, and report assembly."""
+    """Orchestrates retrieval, answer generation (deterministic or LLM), validation, and reporting."""
 
-    def __init__(self, corpus: Optional[Corpus] = None, validators: Optional[List[BaseValidator]] = None):
+    def __init__(
+        self,
+        corpus: Optional[Corpus] = None,
+        validators: Optional[List[BaseValidator]] = None,
+        use_llm: bool = False,
+    ):
         if corpus is None:
             default_path = Path(__file__).parent.parent / "data" / "corpus.json"
             self.corpus = Corpus.from_json_file(default_path)
@@ -54,6 +60,8 @@ class Evaluator:
             EntityPeriodConsistencyValidator(),
             CitationSupportProxyValidator(),
         ]
+        self.use_llm = use_llm
+        self.llm_adapter = LLMAnswerAdapter()
 
     def evaluate(
         self,
@@ -74,9 +82,16 @@ class Evaluator:
         )
         retrieved_docs = [doc for doc, _ in scored_docs]
 
-        # Step 2: Answer synthesis
+        # Step 2: Answer synthesis (custom, live LLM, or deterministic fixture)
         if custom_answer is not None:
             answer = custom_answer
+        elif self.use_llm:
+            answer = self.llm_adapter.generate_answer(
+                query=case.question,
+                retrieved_docs=retrieved_docs,
+                company=case.company,
+                mode=mode,
+            )
         else:
             answer = AnswerSynthesizer.generate_answer(retrieved_docs, mode)
 
@@ -121,13 +136,17 @@ class Evaluator:
 
 
 def run_cli():
-    evaluator = Evaluator()
+    parser = argparse.ArgumentParser(description="PeriodGuard Evaluation Harness")
+    parser.add_argument("--llm", action="store_true", help="Use live LLM adapter (OpenAI / Gemini)")
+    args = parser.parse_args()
+
+    evaluator = Evaluator(use_llm=args.llm)
     reports = evaluator.run_both_modes()
     correct = reports["correct_mode"]
     broken = reports["broken_mode"]
 
     print("=" * 60)
-    print("PERIODGUARD EVALUATION RUN")
+    print(f"PERIODGUARD EVALUATION RUN {'(LIVE LLM)' if args.llm else '(DETERMINISTIC)'}")
     print("=" * 60)
     print(f"CORRECT MODE: {correct.status.value}")
     if correct.failures:
