@@ -1,1 +1,42 @@
-[]
+[
+  {
+    "id": "acme_q4_fy25_results",
+    "company": "Acme Industries",
+    "doc_type": "Quarterly Results",
+    "reporting_period": "Q4 FY25",
+    "publication_date": "2025-05-10",
+    "page": 12,
+    "text": "Acme Industries recorded strong financial execution for the fourth quarter ended March 31, 2025 (Q4 FY25). EBITDA margin increased by 40 bps sequentially to 18.4% compared to 18.0% in Q3 FY25. Net revenue stood at $420 million, reflecting 8% year-over-year expansion.",
+    "source_url": "https://ir.acmeindustries.example.com/reports/fy25/q4-results.pdf"
+  },
+  {
+    "id": "acme_q4_fy25_earnings_call",
+    "company": "Acme Industries",
+    "doc_type": "Earnings Call Transcript",
+    "reporting_period": "Q4 FY25",
+    "publication_date": "2025-05-12",
+    "page": 4,
+    "text": "CEO Commentary: 'Our EBITDA margin expansion of 40 bps in Q4 FY25 versus Q3 FY25 was primarily driven by lower ocean freight rates, plant automation efficiencies, and favorable product mix in our specialty materials segment.'",
+    "source_url": "https://ir.acmeindustries.example.com/transcripts/fy25/q4-earnings-call.pdf"
+  },
+  {
+    "id": "acme_fy26_annual_report",
+    "company": "Acme Industries",
+    "doc_type": "Annual Report",
+    "reporting_period": "FY26",
+    "publication_date": "2025-08-20",
+    "page": 45,
+    "text": "In retrospective review: 'EBITDA margin improved by 40 bps in Q4 FY25 sequentially before contracting in H1 FY26 due to subsequent global tariff hikes.' Total FY26 consolidated revenue reached $1.85 billion.",
+    "source_url": "https://ir.acmeindustries.example.com/reports/fy26/annual-report.pdf"
+  },
+  {
+    "id": "globex_q4_fy25_results",
+    "company": "Globex Corp",
+    "doc_type": "Quarterly Results",
+    "reporting_period": "Q4 FY25",
+    "publication_date": "2025-05-11",
+    "page": 8,
+    "text": "Globex Corp reported Q4 FY25 results. EBITDA margin increased by 50 bps sequentially to 19.1% driven by cloud software subscription growth and cost optimizations.",
+    "source_url": "https://ir.globexcorp.example.com/reports/q4-fy25.pdf"
+  }
+]
