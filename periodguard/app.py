@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage across financial PDFs and filings.",
-    version="2.5.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -80,53 +80,53 @@ BENCHMARK_TESTS = [
     {
         "id": "future_leak_default",
         "title": "Future-Period Leak Trap",
-        "badge": "High-Signal Trap",
-        "badge_color": "rose",
+        "badge": "High Signal Trap",
+        "badge_color": "red",
         "company": "Acme Industries",
         "question": "As of 15 May 2025, did Acme Industries' EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give? Cite the evidence.",
         "as_of_date": "2025-05-15",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Tests if naive retrieval leaks citations from the FY26 Annual Report (published Aug 2025) for a May 2025 query.",
+        "description": "Demonstrates naive RAG leaking figures from the FY26 Annual Report (published Aug 2025) for a May 2025 question.",
     },
     {
         "id": "clean_historical",
         "title": "Clean Historical Query",
         "badge": "Safe Historical",
-        "badge_color": "emerald",
+        "badge_color": "green",
         "company": "Acme Industries",
         "question": "What was Acme Industries' sequential EBITDA margin change in Q4 FY25?",
         "as_of_date": "2025-06-01",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Sets the as-of date after Q4 results release (June 2025), verifying a clean 4/4 PASS across all validators.",
+        "description": "Sets cutoff to June 1 (after Q4 release), verifying a 4/4 clean PASS across all reliability validators.",
     },
     {
         "id": "pre_release_cutoff",
         "title": "Pre-Release Earnings Call Cutoff",
         "badge": "Temporal Boundary",
-        "badge_color": "amber",
+        "badge_color": "orange",
         "company": "Acme Industries",
         "question": "What management commentary was provided regarding Q4 FY25 EBITDA margin expansion?",
         "as_of_date": "2025-05-11",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Sets cutoff to May 11 (before the May 12 Earnings Call), catching commentary cited before it took place.",
+        "description": "Sets cutoff to May 11 (before the May 12 call), catching management remarks cited before they occurred.",
     },
     {
         "id": "peer_entity_mismatch",
         "title": "Peer Entity Contamination Trap",
         "badge": "Entity Check",
-        "badge_color": "indigo",
+        "badge_color": "purple",
         "company": "Acme Industries",
         "question": "Did EBITDA margin reach 19.1% in Q4 FY25?",
         "as_of_date": "2025-05-15",
         "as_of_reporting_period": "Q4 FY25",
-        "description": "Tests whether the system rejects citations from Globex Corp (peer company with 19.1% margin).",
+        "description": "Evaluates whether the retriever correctly rejects citations from Globex Corp (peer company with 19.1% margin).",
     },
 ]
 
 
 @app.get("/health")
 def health_check() -> Dict[str, str]:
-    return {"status": "ok", "service": "PeriodGuard Financial Evaluation Landing Engine"}
+    return {"status": "ok", "service": "PeriodGuard Financial Evaluation Engine"}
 
 
 @app.get("/api/presets")
@@ -279,1266 +279,912 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PeriodGuard • Financial Research Reliability & Temporal Citation Gate</title>
+  <title>PeriodGuard • Financial Research Citation Reliability Engine</title>
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <style>
+    /* Cloudflare-Inspired Technical Minimalist Design Tokens */
     :root {
-      --bg-base: #070a12;
-      --bg-card: #0e1424;
-      --bg-card-elevated: #141d33;
-      --bg-card-hover: #1b2745;
-      --border-subtle: rgba(255, 255, 255, 0.08);
-      --border-strong: rgba(255, 255, 255, 0.16);
+      --cf-primary: #ff5e1f;
+      --cf-primary-hover: #ff4800;
+      --cf-bg: #ffffff;
+      --cf-surface: #fcfcfc;
+      --cf-surface-elevated: #f4f4f5;
+      --cf-border: #e4e4e7;
+      --cf-border-subtle: #f0f0f2;
+      
+      --cf-text: #18181b;
+      --cf-text-muted: #52525b;
+      --cf-text-dim: #71717a;
 
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-dim: #64748b;
+      --cf-green: #059669;
+      --cf-green-bg: #ecfdf5;
+      --cf-green-border: #a7f3d0;
 
-      --emerald-500: #10b981;
-      --emerald-bg: rgba(16, 185, 129, 0.12);
-      --emerald-border: rgba(16, 185, 129, 0.35);
+      --cf-red: #dc2626;
+      --cf-red-bg: #fef2f2;
+      --cf-red-border: #fecaca;
 
-      --rose-500: #f43f5e;
-      --rose-bg: rgba(244, 63, 94, 0.12);
-      --rose-border: rgba(244, 63, 94, 0.35);
+      --cf-radius-sm: 2px;
+      --cf-radius-md: 4px;
+      --cf-radius-lg: 6px;
 
-      --indigo-500: #6366f1;
-      --cyan-500: #06b6d4;
-      --amber-500: #f59e0b;
-
-      --font-display: 'Outfit', sans-serif;
-      --font-body: 'Plus Jakarta Sans', sans-serif;
-      --font-mono: 'JetBrains Mono', monospace;
-
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 16px;
-      --radius-full: 9999px;
+      --cf-font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --cf-font-mono: 'JetBrains Mono', "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: var(--font-body);
-      background-color: var(--bg-base);
-      color: var(--text-main);
-      min-height: 100vh;
-      line-height: 1.55;
-      background-image: 
-        radial-gradient(ellipse 70% 35% at 50% -10%, rgba(99, 102, 241, 0.15), transparent),
-        radial-gradient(circle at 15% 20%, rgba(6, 182, 212, 0.06), transparent),
-        radial-gradient(circle at 85% 80%, rgba(244, 63, 94, 0.04), transparent);
-      background-attachment: fixed;
-      padding: 1.5rem 1rem 4rem;
+      font-family: var(--cf-font-sans);
+      background-color: var(--cf-bg);
+      color: var(--cf-text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
 
-    .landing-wrap {
-      max-width: 1060px;
+    .container {
+      max-width: 1100px;
       margin: 0 auto;
+      padding: 0 1.5rem;
     }
 
-    /* Top Navbar */
-    .navbar {
+    /* Top Utility Header */
+    .site-header {
+      border-bottom: 1px solid var(--cf-border);
+      background: #ffffff;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .header-inner {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 1.25rem;
-      margin-bottom: 2rem;
-      border-bottom: 1px solid var(--border-subtle);
-      flex-wrap: wrap;
-      gap: 1rem;
+      height: 56px;
     }
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .brand-icon {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #4f46e5, #06b6d4);
-      border-radius: var(--radius-sm);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 0 20px rgba(79, 70, 229, 0.35);
-    }
-
-    .brand-icon svg {
-      width: 20px;
-      height: 20px;
-      fill: none;
-      stroke: white;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .brand-text h1 {
-      font-family: var(--font-display);
-      font-size: 1.45rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .brand-tag {
-      font-family: var(--font-mono);
-      font-size: 0.65rem;
-      background: rgba(99, 102, 241, 0.2);
-      color: #a5b4fc;
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      padding: 0.15rem 0.5rem;
-      border-radius: var(--radius-full);
-      font-weight: 600;
-    }
-
-    .nav-actions {
+    .brand-link {
       display: flex;
       align-items: center;
       gap: 0.6rem;
+      text-decoration: none;
+      color: var(--cf-text);
     }
 
-    .btn {
-      font-family: var(--font-body);
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      background: var(--cf-primary);
+      border-radius: var(--cf-radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.85rem;
+    }
+
+    .brand-name {
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.03em;
+    }
+
+    .brand-badge {
+      font-family: var(--cf-font-mono);
+      font-size: 0.65rem;
       font-weight: 600;
+      text-transform: uppercase;
+      background: var(--cf-surface-elevated);
+      color: var(--cf-text-muted);
+      border: 1px solid var(--cf-border);
+      padding: 0.1rem 0.4rem;
+      border-radius: var(--cf-radius-sm);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Minimal Button Tokens */
+    .btn {
+      font-family: var(--cf-font-sans);
       font-size: 0.82rem;
-      padding: 0.5rem 1rem;
-      border-radius: var(--radius-sm);
+      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      border-radius: var(--cf-radius-sm);
+      border: 1px solid transparent;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      transition: all 0.15s ease;
-      border: 1px solid transparent;
+      gap: 0.35rem;
       text-decoration: none;
+      transition: background 120ms ease, border-color 120ms ease;
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-      color: white;
-      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+      background: var(--cf-primary);
+      color: #ffffff;
     }
-    .btn-primary:hover {
-      background: linear-gradient(135deg, #4338ca 0%, #2563eb 100%);
-      transform: translateY(-1px);
+    .btn-primary:hover { background: var(--cf-primary-hover); }
+
+    .btn-outline {
+      background: #ffffff;
+      color: var(--cf-text);
+      border-color: var(--cf-border);
+    }
+    .btn-outline:hover {
+      background: var(--cf-surface-elevated);
+      border-color: #d4d4d8;
     }
 
-    .btn-secondary {
-      background: var(--bg-card);
-      color: var(--text-main);
-      border: 1px solid var(--border-strong);
+    .btn-subtle {
+      background: transparent;
+      color: var(--cf-text-muted);
     }
-    .btn-secondary:hover {
-      background: var(--bg-card-elevated);
-      border-color: rgba(255, 255, 255, 0.25);
-    }
-
-    .btn-info {
-      background: rgba(99, 102, 241, 0.15);
-      color: #a5b4fc;
-      border: 1px solid rgba(99, 102, 241, 0.35);
-    }
-    .btn-info:hover {
-      background: rgba(99, 102, 241, 0.25);
-      color: white;
+    .btn-subtle:hover {
+      background: var(--cf-surface-elevated);
+      color: var(--cf-text);
     }
 
-    /* 1. Hero Section */
-    .hero-section {
-      text-align: center;
-      padding: 1.5rem 0 2.5rem;
-      border-bottom: 1px solid var(--border-subtle);
-      margin-bottom: 2rem;
+    /* Hero Section */
+    .hero {
+      padding: 3rem 0 2.5rem;
+      border-bottom: 1px solid var(--cf-border-subtle);
     }
 
     .hero-eyebrow {
-      font-family: var(--font-mono);
-      font-size: 0.76rem;
-      font-weight: 700;
+      font-family: var(--cf-font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--cyan-500);
-      margin-bottom: 0.6rem;
-    }
-
-    .hero-headline {
-      font-family: var(--font-display);
-      font-size: 2.25rem;
-      font-weight: 900;
-      letter-spacing: -0.03em;
-      line-height: 1.25;
-      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 1rem;
-      max-width: 860px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    .hero-thesis {
-      font-size: 1.05rem;
-      color: var(--text-muted);
-      max-width: 760px;
-      margin: 0 auto 1.75rem;
-      line-height: 1.6;
-    }
-
-    .thesis-callout {
-      background: rgba(99, 102, 241, 0.08);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      padding: 0.75rem 1.25rem;
-      border-radius: var(--radius-md);
-      font-family: var(--font-mono);
-      font-size: 0.86rem;
-      color: #a5b4fc;
-      display: inline-block;
-    }
-
-    .pillars-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 1rem;
-      margin-top: 1.75rem;
-      text-align: left;
-    }
-
-    @media (max-width: 768px) {
-      .pillars-grid { grid-template-columns: 1fr; }
-    }
-
-    .pillar-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 1.15rem;
-    }
-
-    .pillar-icon {
-      font-size: 1.2rem;
+      letter-spacing: 0.08em;
+      color: var(--cf-primary);
       margin-bottom: 0.5rem;
     }
 
-    .pillar-title {
-      font-family: var(--font-display);
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: #ffffff;
-      margin-bottom: 0.3rem;
+    .hero-title {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.15;
+      color: var(--cf-text);
+      max-width: 780px;
+      margin-bottom: 0.85rem;
     }
 
-    .pillar-desc {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      line-height: 1.45;
+    .hero-subtitle {
+      font-size: 1.05rem;
+      color: var(--cf-text-muted);
+      max-width: 740px;
+      line-height: 1.55;
     }
 
-    /* Supported PDF Types Guide */
-    .supported-reports-grid {
+    .hero-strip {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 0.85rem;
-      margin-top: 1.2rem;
-    }
-
-    .report-type-card {
-      background: var(--bg-card-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 0.85rem 1rem;
-      font-size: 0.8rem;
-    }
-
-    .report-type-name {
-      font-family: var(--font-display);
-      font-weight: 700;
-      color: #93c5fd;
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      margin-bottom: 0.25rem;
-    }
-
-    /* 2. Step 1: Document Corpus Setup */
-    .step-section {
-      background: var(--bg-card);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: 1.5rem 1.75rem;
-      margin-bottom: 2rem;
-    }
-
-    .step-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.15rem;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-    }
-
-    .step-badge {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      font-weight: 700;
-      background: rgba(6, 182, 212, 0.15);
-      color: var(--cyan-500);
-      border: 1px solid rgba(6, 182, 212, 0.3);
-      padding: 0.2rem 0.6rem;
-      border-radius: var(--radius-full);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-
-    .step-title {
-      font-family: var(--font-display);
-      font-size: 1.2rem;
-      font-weight: 700;
-    }
-
-    .corpus-choice-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 1rem;
+      margin-top: 1.75rem;
     }
 
-    @media (max-width: 680px) {
-      .corpus-choice-grid { grid-template-columns: 1fr; }
+    @media (max-width: 768px) {
+      .hero-strip { grid-template-columns: 1fr; }
     }
 
-    .corpus-option-card {
-      background: var(--bg-card-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 1.2rem;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      gap: 0.85rem;
-      transition: all 0.15s ease;
+    .strip-item {
+      border: 1px solid var(--cf-border);
+      background: var(--cf-surface);
+      border-radius: var(--cf-radius-md);
+      padding: 1rem 1.15rem;
     }
 
-    .corpus-option-card:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-    }
-
-    .corpus-option-card.active {
-      border-color: var(--indigo-500);
-      background: rgba(99, 102, 241, 0.08);
-    }
-
-    /* 3. Step 2: Evaluation Mode Tabs */
-    .tabs-nav {
-      display: flex;
-      gap: 0.5rem;
-      border-bottom: 1px solid var(--border-strong);
-      margin-bottom: 1.5rem;
-    }
-
-    .tab-btn {
-      font-family: var(--font-display);
-      font-size: 0.95rem;
+    .strip-title {
       font-weight: 700;
-      padding: 0.65rem 1.25rem;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-      transition: all 0.15s ease;
+      font-size: 0.88rem;
+      margin-bottom: 0.25rem;
       display: flex;
       align-items: center;
       gap: 0.4rem;
     }
 
-    .tab-btn:hover { color: var(--text-main); }
-    .tab-btn.active {
-      color: #ffffff;
-      border-bottom-color: var(--cyan-500);
+    .strip-desc {
+      font-size: 0.8rem;
+      color: var(--cf-text-muted);
+      line-height: 1.45;
     }
 
-    .tab-pane { display: none; }
-    .tab-pane.active { display: block; }
+    /* Main Workbench Grid */
+    .workbench-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 1.5rem;
+      padding: 2rem 0 4rem;
+    }
 
-    /* Mode A: Benchmark Tests Grid */
+    @media (max-width: 860px) {
+      .workbench-layout { grid-template-columns: 1fr; }
+    }
+
+    /* Sidebar / Ingestion Panel */
+    .sidebar-panel {
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-md);
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      height: fit-content;
+    }
+
+    .panel-head {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--cf-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--cf-surface);
+    }
+
+    .panel-title {
+      font-weight: 700;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-family: var(--cf-font-mono);
+      color: var(--cf-text-muted);
+    }
+
+    .panel-body {
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .doc-item-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--cf-border-subtle);
+      border-radius: var(--cf-radius-sm);
+      background: var(--cf-surface);
+      font-size: 0.78rem;
+    }
+
+    .doc-item-title {
+      font-weight: 600;
+      color: var(--cf-text);
+      font-family: var(--cf-font-mono);
+      font-size: 0.74rem;
+    }
+
+    .doc-item-meta {
+      color: var(--cf-text-dim);
+      font-size: 0.72rem;
+      margin-top: 0.15rem;
+    }
+
+    .doc-type-pill {
+      display: inline-block;
+      font-family: var(--cf-font-mono);
+      font-size: 0.62rem;
+      font-weight: 600;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--cf-radius-sm);
+      background: var(--cf-surface-elevated);
+      color: var(--cf-text-muted);
+      border: 1px solid var(--cf-border);
+    }
+
+    /* Main Console / Chat Area */
+    .console-panel {
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-md);
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Tabs Bar */
+    .console-nav {
+      display: flex;
+      border-bottom: 1px solid var(--cf-border);
+      background: var(--cf-surface);
+      padding: 0 0.5rem;
+    }
+
+    .console-tab {
+      font-family: var(--cf-font-sans);
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.75rem 1rem;
+      border: none;
+      background: transparent;
+      color: var(--cf-text-muted);
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .console-tab.active {
+      color: var(--cf-primary);
+      border-bottom-color: var(--cf-primary);
+      background: #ffffff;
+    }
+
+    .tab-content { display: none; padding: 1.25rem; }
+    .tab-content.active { display: block; }
+
+    /* Mode A: Benchmark Cards */
     .benchmarks-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+      gap: 0.85rem;
     }
 
-    @media (max-width: 720px) {
+    @media (max-width: 680px) {
       .benchmarks-grid { grid-template-columns: 1fr; }
     }
 
     .benchmark-card {
-      background: var(--bg-card-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 1.15rem;
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-sm);
+      padding: 0.9rem;
+      background: var(--cf-surface);
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: border-color 120ms ease, background 120ms ease;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      gap: 0.75rem;
+      gap: 0.6rem;
     }
 
     .benchmark-card:hover {
-      border-color: var(--cyan-500);
-      background: var(--bg-card-hover);
-      transform: translateY(-2px);
+      border-color: var(--cf-primary);
+      background: #ffffff;
     }
 
-    .benchmark-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .badge-pill {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
+    .badge-tag {
+      font-family: var(--cf-font-mono);
+      font-size: 0.65rem;
       font-weight: 700;
-      padding: 0.15rem 0.5rem;
-      border-radius: var(--radius-full);
       text-transform: uppercase;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--cf-radius-sm);
     }
+    .badge-tag.red { background: var(--cf-red-bg); color: var(--cf-red); border: 1px solid var(--cf-red-border); }
+    .badge-tag.green { background: var(--cf-green-bg); color: var(--cf-green); border: 1px solid var(--cf-green-border); }
+    .badge-tag.orange { background: #fff7ed; color: #ea580c; border: 1px solid #ffedd5; }
+    .badge-tag.purple { background: #faf5ff; color: #9333ea; border: 1px solid #f3e8ff; }
 
-    .badge-pill.rose { background: var(--rose-bg); color: #fb7185; border: 1px solid var(--rose-border); }
-    .badge-pill.emerald { background: var(--emerald-bg); color: #34d399; border: 1px solid var(--emerald-border); }
-    .badge-pill.amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
-    .badge-pill.indigo { background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.35); }
-
-    /* Mode B: Chat-Like Financial AI Workbench */
-    .chat-container {
+    /* Mode B: Chat Experience */
+    .chat-history {
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
-    }
-
-    .chat-log {
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-      max-height: 600px;
+      gap: 1rem;
+      max-height: 520px;
       overflow-y: auto;
-      padding-right: 0.5rem;
+      padding-right: 0.25rem;
+      margin-bottom: 1.25rem;
     }
 
-    .chat-bubble-user {
+    .msg-user {
       align-self: flex-end;
-      background: linear-gradient(135deg, #3b82f6, #4f46e5);
-      color: white;
-      padding: 0.85rem 1.2rem;
-      border-radius: 14px 14px 2px 14px;
-      max-width: 80%;
-      font-size: 0.96rem;
-      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
+      background: var(--cf-surface-elevated);
+      border: 1px solid var(--cf-border);
+      color: var(--cf-text);
+      padding: 0.75rem 1rem;
+      border-radius: var(--cf-radius-md);
+      max-width: 85%;
+      font-size: 0.88rem;
     }
 
-    .chat-bubble-assistant {
+    .msg-bot {
       align-self: flex-start;
-      background: var(--bg-card-elevated);
-      border: 1px solid var(--border-strong);
-      padding: 1.25rem 1.4rem;
-      border-radius: 14px 14px 14px 2px;
-      max-width: 95%;
+      background: #ffffff;
+      border: 1px solid var(--cf-border);
+      border-left: 3px solid var(--cf-primary);
+      border-radius: var(--cf-radius-sm);
+      padding: 1rem 1.15rem;
       width: 100%;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
     }
 
-    .assistant-head {
+    .msg-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.6rem;
       flex-wrap: wrap;
       gap: 0.5rem;
     }
 
-    .gate-badge {
-      font-family: var(--font-mono);
-      font-size: 0.76rem;
+    .gate-indicator {
+      font-family: var(--cf-font-mono);
+      font-size: 0.7rem;
       font-weight: 700;
-      padding: 0.25rem 0.65rem;
-      border-radius: var(--radius-full);
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--cf-radius-sm);
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
       cursor: pointer;
     }
+    .gate-indicator.pass { background: var(--cf-green-bg); color: var(--cf-green); border: 1px solid var(--cf-green-border); }
+    .gate-indicator.fail { background: var(--cf-red-bg); color: var(--cf-red); border: 1px solid var(--cf-red-border); }
 
-    .gate-badge.safe {
-      background: var(--emerald-bg);
-      color: var(--emerald-500);
-      border: 1px solid var(--emerald-border);
+    .msg-text {
+      font-size: 0.92rem;
+      color: var(--cf-text);
+      line-height: 1.55;
+      margin-bottom: 0.85rem;
     }
 
-    .gate-badge.unsafe {
-      background: var(--rose-bg);
-      color: var(--rose-500);
-      border: 1px solid var(--rose-border);
-    }
-
-    .chat-answer-text {
-      font-size: 1.02rem;
-      color: #ffffff;
-      line-height: 1.6;
-      margin-bottom: 1rem;
-    }
-
-    .citations-section-title {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.4rem;
-    }
-
-    .citations-grid {
+    .citations-wrap {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.4rem;
+      margin-top: 0.65rem;
+      border-top: 1px solid var(--cf-border-subtle);
+      padding-top: 0.65rem;
     }
 
-    .citation-btn {
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid var(--border-strong);
-      border-left: 3px solid var(--indigo-500);
-      padding: 0.55rem 0.85rem;
-      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-      cursor: pointer;
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      transition: all 0.15s ease;
-      display: block;
-      width: 100%;
+    .citation-pill-btn {
+      background: var(--cf-surface);
+      border: 1px solid var(--cf-border);
+      padding: 0.5rem 0.75rem;
+      border-radius: var(--cf-radius-sm);
       text-align: left;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: border-color 120ms ease;
     }
+    .citation-pill-btn:hover { border-color: var(--cf-primary); background: #ffffff; }
 
-    .citation-btn:hover {
-      background: var(--bg-card-hover);
-      border-left-color: var(--cyan-500);
-      transform: translateX(2px);
-    }
-
-    .cit-top {
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      color: #93c5fd;
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 0.2rem;
-    }
-
-    .validation-breakdown-box {
-      margin-top: 0.85rem;
-      padding-top: 0.75rem;
-      border-top: 1px solid var(--border-subtle);
-      font-size: 0.8rem;
-    }
-
-    .check-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.3rem 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    }
-
-    .check-name {
-      font-family: var(--font-mono);
-      font-size: 0.74rem;
-      color: var(--text-muted);
-    }
-
-    .check-status-pass {
-      color: var(--emerald-500);
-      font-family: var(--font-mono);
-      font-weight: 700;
-      font-size: 0.72rem;
-    }
-
-    .check-status-fail {
-      color: var(--rose-500);
-      font-family: var(--font-mono);
-      font-weight: 700;
-      font-size: 0.72rem;
-    }
-
-    .chat-input-wrapper {
-      background: rgba(0, 0, 0, 0.5);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
+    /* Input Bar */
+    .chat-box-wrap {
+      border-top: 1px solid var(--cf-border);
+      background: var(--cf-surface);
       padding: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
+      border-radius: 0 0 var(--cf-radius-md) var(--cf-radius-md);
     }
 
     .chat-textarea {
       width: 100%;
-      background: transparent;
-      border: none;
-      color: #ffffff;
-      font-family: var(--font-body);
-      font-size: 1rem;
-      line-height: 1.5;
+      background: #ffffff;
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-sm);
+      padding: 0.65rem 0.85rem;
+      font-family: var(--cf-font-sans);
+      font-size: 0.88rem;
+      color: var(--cf-text);
       resize: none;
-      min-height: 52px;
+      min-height: 54px;
     }
+    .chat-textarea:focus { outline: 1px solid var(--cf-primary); border-color: var(--cf-primary); }
 
-    .chat-textarea:focus { outline: none; }
-
-    .chat-controls-bar {
+    .chat-toolbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 0.65rem;
-      border-top: 1px solid var(--border-subtle);
-      padding-top: 0.75rem;
-    }
-
-    .inline-param-group {
-      display: flex;
-      align-items: center;
       gap: 0.5rem;
-      flex-wrap: wrap;
+      margin-top: 0.65rem;
     }
 
-    .param-input {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-sm);
-      color: #ffffff;
-      font-family: var(--font-body);
-      font-size: 0.78rem;
-      padding: 0.3rem 0.55rem;
-    }
-
-    .sample-prompts-bar {
+    .toolbar-inputs {
       display: flex;
       align-items: center;
       gap: 0.4rem;
-      margin-top: 0.5rem;
       flex-wrap: wrap;
     }
 
-    .sample-pill {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      padding: 0.2rem 0.5rem;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: all 0.15s ease;
-      white-space: nowrap;
+    .input-compact {
+      background: #ffffff;
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-sm);
+      font-family: var(--cf-font-sans);
+      font-size: 0.76rem;
+      color: var(--cf-text);
+      padding: 0.3rem 0.5rem;
     }
 
-    .sample-pill:hover {
-      background: rgba(99, 102, 241, 0.2);
-      border-color: var(--indigo-500);
-      color: #ffffff;
-    }
-
-    /* Comparison Box */
-    .comparison-explainer {
-      background: linear-gradient(145deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      border-radius: var(--radius-lg);
-      padding: 1.35rem 1.6rem;
+    /* Comparison Difference Box */
+    .comparison-section {
       margin-top: 1.5rem;
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-sm);
+      background: var(--cf-surface);
     }
 
-    .comp-header {
+    .comp-toggle-head {
+      padding: 0.75rem 1rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
       cursor: pointer;
+      font-weight: 700;
+      font-size: 0.82rem;
       user-select: none;
     }
 
-    .comp-header h3 {
-      font-family: var(--font-display);
-      font-size: 1.1rem;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .comp-body {
-      margin-top: 1.15rem;
-      padding-top: 1.15rem;
-      border-top: 1px solid var(--border-subtle);
+    .comp-content {
+      padding: 1rem;
+      border-top: 1px solid var(--cf-border);
       display: none;
     }
+    .comp-content.open { display: block; }
 
-    .comp-body.open { display: block; }
-
-    .diff-grid {
+    .diff-two-col {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1.15rem;
-      margin-top: 1rem;
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+    @media (max-width: 680px) {
+      .diff-two-col { grid-template-columns: 1fr; }
     }
 
-    @media (max-width: 720px) {
-      .diff-grid { grid-template-columns: 1fr; }
+    .diff-col {
+      padding: 0.85rem;
+      border-radius: var(--cf-radius-sm);
+      font-size: 0.8rem;
     }
+    .diff-col.err { background: var(--cf-red-bg); border: 1px solid var(--cf-red-border); }
+    .diff-col.ok { background: var(--cf-green-bg); border: 1px solid var(--cf-green-border); }
 
-    .diff-box {
-      background: rgba(0, 0, 0, 0.35);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 1.1rem;
-    }
-
-    .diff-box.failed { border-top: 3px solid var(--rose-500); }
-    .diff-box.passed { border-top: 3px solid var(--emerald-500); }
-
-    /* Modals & Drawers */
-    .modal-backdrop, .drawer-backdrop {
+    /* Modals & Slide-over */
+    .modal-veil, .drawer-veil {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(3, 7, 18, 0.8);
-      backdrop-filter: blur(4px);
-      z-index: 998;
+      background: rgba(0, 0, 0, 0.4);
+      z-index: 99;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.2s ease;
+      transition: opacity 150ms ease;
     }
+    .modal-veil.show, .drawer-veil.show { opacity: 1; pointer-events: auto; }
 
-    .modal-backdrop.active, .drawer-backdrop.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .modal-box {
+    .modal-window {
       position: fixed;
       top: 50%; left: 50%;
-      transform: translate(-50%, -50%) scale(0.96);
-      width: 92%; max-width: 640px;
-      background: #0d1322;
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: 1.75rem;
-      z-index: 999;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
-      opacity: 0;
-      pointer-events: none;
-      transition: all 0.2s ease;
+      transform: translate(-50%, -50%);
+      width: 90%; max-width: 580px;
+      background: #ffffff;
+      border: 1px solid var(--cf-border);
+      border-radius: var(--cf-radius-md);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      z-index: 100;
+      padding: 1.5rem;
+      display: none;
     }
+    .modal-window.show { display: block; }
 
-    .modal-box.active {
-      opacity: 1;
-      pointer-events: auto;
-      transform: translate(-50%, -50%) scale(1);
-    }
-
-    .modal-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.25rem;
-    }
-
-    .modal-head h3 {
-      font-family: var(--font-display);
-      font-size: 1.2rem;
-      font-weight: 700;
-    }
-
-    .inspector-drawer {
+    .drawer-window {
       position: fixed;
       top: 0; right: 0; bottom: 0;
-      width: 100%; max-width: 500px;
-      background: #0d1322;
-      border-left: 1px solid var(--border-strong);
-      z-index: 999;
-      box-shadow: -10px 0 40px rgba(0, 0, 0, 0.6);
+      width: 100%; max-width: 460px;
+      background: #ffffff;
+      border-left: 1px solid var(--cf-border);
+      box-shadow: -5px 0 25px rgba(0,0,0,0.08);
+      z-index: 100;
       transform: translateX(100%);
-      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: transform 180ms ease;
       display: flex;
       flex-direction: column;
     }
+    .drawer-window.show { transform: translateX(0); }
 
-    .inspector-drawer.active { transform: translateX(0); }
-
-    .drawer-head {
+    .drawer-top {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--cf-border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.35rem 1.5rem;
-      border-bottom: 1px solid var(--border-subtle);
+      background: var(--cf-surface);
     }
 
-    .drawer-content {
-      padding: 1.35rem 1.5rem;
+    .drawer-scroll {
+      padding: 1.25rem;
       overflow-y: auto;
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
+      gap: 1rem;
     }
 
-    .btn-close {
-      background: none;
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      font-size: 1.2rem;
-      width: 32px;
-      height: 32px;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-    }
-
-    .btn-close:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: white;
-    }
-
-    .meta-table {
+    .clean-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.82rem;
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      overflow: hidden;
+      font-size: 0.78rem;
     }
-
-    .meta-table td {
-      padding: 0.55rem 0.8rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    .clean-table td, .clean-table th {
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--cf-border);
+      text-align: left;
     }
-
-    .meta-table td:first-child {
-      color: var(--text-dim);
-      font-family: var(--font-mono);
-      font-size: 0.74rem;
-      width: 38%;
-    }
-
-    .quote-box {
-      background: #070a12;
-      border: 1px solid rgba(99, 102, 241, 0.25);
-      border-radius: var(--radius-md);
-      padding: 0.9rem;
-      font-size: 0.82rem;
-      line-height: 1.55;
-      color: #cbd5e1;
-      font-style: italic;
-    }
-
-    .guide-section-box {
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 1rem;
-      margin-bottom: 0.85rem;
-    }
-
-    .guide-title {
-      font-family: var(--font-display);
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      margin-bottom: 0.35rem;
-    }
-
-    .guide-text {
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      line-height: 1.5;
-    }
+    .clean-table th { background: var(--cf-surface); font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); }
   </style>
 </head>
 <body>
-  <div class="landing-wrap">
-    
-    <!-- Navbar -->
-    <header class="navbar">
-      <div class="brand">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-        </div>
-        <div class="brand-text">
-          <h1>PeriodGuard <span class="brand-tag">VERIFICATION ENGINE</span></h1>
-        </div>
-      </div>
-      <div class="nav-actions">
-        <button class="btn btn-info" onclick="openGuideModal()">
-          ℹ️ What is Temporal Gating?
-        </button>
-        <button class="btn btn-secondary" onclick="openCorpusModal()">
-          📚 Manage Filings (<span id="corpusCountBadge">4</span>)
-        </button>
-        <button class="btn btn-primary" onclick="openUploadModal()">
-          📄 Upload Financial PDF
-        </button>
-      </div>
-    </header>
 
-    <!-- 1. Hero Section -->
-    <section class="hero-section">
-      <div class="hero-eyebrow">Financial Research Reliability &amp; Fact Gating Engine</div>
-      <h2 class="hero-headline">“A citation exists” &ne; “The cited answer is safe to use.”</h2>
-      <p class="hero-thesis">
-        Financial RAG systems frequently hallucinate reliability by quietly pulling from later fiscal years (like citing a 2026 Annual Report for a 2025 query). 
-        PeriodGuard evaluates any financial Q&amp;A pipeline against temporal cutoff dates, entity boundaries, and verbatim evidence support.
+  <!-- Top Header Navigation -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="brand-link">
+        <div class="brand-mark">P</div>
+        <span class="brand-name">PeriodGuard</span>
+        <span class="brand-badge">VERIFICATION ENGINE</span>
+      </a>
+
+      <div class="header-actions">
+        <button class="btn btn-subtle" onclick="openGuide()">ℹ️ Guide &amp; Docs</button>
+        <button class="btn btn-outline" onclick="openCorpusModal()">📚 Manage Filings (<span id="countBadge">4</span>)</button>
+        <button class="btn btn-primary" onclick="openUploadModal()">+ Ingest PDF</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Hero / Core Thesis -->
+    <section class="hero">
+      <div class="hero-eyebrow">Financial Retrieval &amp; Citation Gate</div>
+      <h1 class="hero-title">“A citation exists” &ne; “The cited answer is safe to use.”</h1>
+      <p class="hero-subtitle">
+        Standard financial RAG searches by semantic text similarity. When answering historical questions, it quietly cites later filings (e.g. citing an Aug 2025 10-K for a May 2025 query)—silently leaking future figures. PeriodGuard evaluates research pipelines before analysts rely on them.
       </p>
-      <div class="thesis-callout">
-        🛡️ Works with any 10-Q, 10-K, Earnings Call, 8-K, Investor Deck, or Custom Financial PDF
-      </div>
 
-      <div class="pillars-grid">
-        <div class="pillar-card">
-          <div class="pillar-icon">⏳</div>
-          <div class="pillar-title">Future-Period Citation Gate</div>
-          <div class="pillar-desc">Guarantees that no citation originates from a filing published after the as-of cutoff date.</div>
+      <div class="hero-strip">
+        <div class="strip-item">
+          <div class="strip-title">⏳ Temporal Gating</div>
+          <div class="strip-desc">Guarantees no citation is drawn from a filing published after the as-of cutoff date.</div>
         </div>
-        <div class="pillar-card">
-          <div class="pillar-icon">🏢</div>
-          <div class="pillar-title">Entity &amp; Period Alignment</div>
-          <div class="pillar-desc">Prevents cross-company contamination and fiscal period mismatch errors.</div>
+        <div class="strip-item">
+          <div class="strip-title">🏢 Entity &amp; Period Alignment</div>
+          <div class="strip-desc">Prevents cross-company contamination and fiscal period mismatch errors.</div>
         </div>
-        <div class="pillar-card">
-          <div class="pillar-icon">📊</div>
-          <div class="pillar-title">Deterministic Fact Support</div>
-          <div class="pillar-desc">Verifies numbers, units (bps, %, $), and qualitative management commentary against verbatim quotes.</div>
+        <div class="strip-item">
+          <div class="strip-title">📊 Fact Support Proxy</div>
+          <div class="strip-desc">Verifies numbers, units (bps, %, $), and qualitative management remarks against source quotes.</div>
         </div>
       </div>
     </section>
 
-    <!-- 2. Step 1: Document Corpus Setup & Supported PDF Types -->
-    <section class="step-section">
-      <div class="step-header">
-        <div>
-          <span class="step-badge">Step 1: Financial Document Corpus</span>
-          <div class="step-title" style="margin-top: 0.35rem;">Ingest Any Financial PDF or Use Sample Fixture</div>
+    <!-- Main Workbench Area -->
+    <div class="workbench-layout">
+      
+      <!-- Left: Corpus & Filing Ingestion Panel -->
+      <aside class="sidebar-panel">
+        <div class="panel-head">
+          <span class="panel-title">Active Corpus</span>
+          <button class="btn btn-subtle" style="padding: 0.15rem 0.4rem; font-size: 0.72rem;" onclick="resetCorpus()">Reset</button>
         </div>
-        <div style="display: flex; gap: 0.5rem;">
-          <button class="btn btn-secondary" onclick="openCorpusModal()">View Loaded Filings</button>
-          <button class="btn btn-primary" onclick="openUploadModal()">+ Ingest PDF</button>
-        </div>
-      </div>
+        <div class="panel-body">
+          <div style="font-size: 0.78rem; color: var(--cf-text-muted);">
+            Active financial filings available for retrieval:
+          </div>
 
-      <div class="corpus-choice-grid">
-        <!-- Option A: Default Fixture -->
-        <div class="corpus-option-card active" id="cardDefaultCorpus">
-          <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-              <strong style="font-size: 0.95rem;">Sample Financial Corpus (Acme Industries Benchmark)</strong>
-              <span style="color: var(--emerald-500); font-size: 0.75rem; font-weight: 700;">✓ Active</span>
+          <div id="sidebarDocList" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <!-- Rendered by JS -->
+          </div>
+
+          <button class="btn btn-outline" style="width: 100%; justify-content: center; margin-top: 0.4rem;" onclick="openUploadModal()">
+            + Ingest Custom PDF
+          </button>
+
+          <div style="margin-top: 0.75rem; border-top: 1px solid var(--cf-border-subtle); padding-top: 0.75rem;">
+            <div style="font-family: var(--cf-font-mono); font-size: 0.68rem; color: var(--cf-text-dim); text-transform: uppercase; font-weight: 700; margin-bottom: 0.35rem;">
+              Supported Report Types:
             </div>
-            <p style="font-size: 0.8rem; color: var(--text-muted);">
-              Preloaded with Q4 FY25 Results (May 10), Q4 Earnings Call (May 12), FY26 Annual Report Trap (Aug 20), and Globex Corp Peer fixture.
-            </p>
-          </div>
-          <button class="btn btn-secondary" style="align-self: flex-start;" onclick="resetCorpus()">🔄 Restore Defaults</button>
-        </div>
-
-        <!-- Option B: Upload Real PDF -->
-        <div class="corpus-option-card">
-          <div>
-            <strong style="font-size: 0.95rem;">Ingest Your Own Financial PDFs</strong>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem;">
-              Upload real SEC 10-Qs, 10-Ks, or earnings call PDFs. PeriodGuard indexes text page-by-page and evaluates retrieval against your custom as-of cutoff date.
-            </p>
-          </div>
-          <button class="btn btn-primary" style="align-self: flex-start;" onclick="openUploadModal()">📄 Ingest Financial PDF</button>
-        </div>
-      </div>
-
-      <!-- Supported Report Types Guide -->
-      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-subtle);">
-        <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700; margin-bottom: 0.6rem;">
-          Supported Financial Document &amp; PDF Types:
-        </div>
-        <div class="supported-reports-grid">
-          <div class="report-type-card">
-            <div class="report-type-name"><span>📑</span> 10-Q Quarterly Reports</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem;">Quarterly income statements, EBITDA margins, segment revenue breakdowns.</div>
-          </div>
-          <div class="report-type-card">
-            <div class="report-type-name"><span>📑</span> 10-K Annual Reports</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem;">Consolidated audited statements, balance sheets, full-year GAAP metrics, risk factors.</div>
-          </div>
-          <div class="report-type-card">
-            <div class="report-type-name"><span>🎙️</span> Earnings Call Transcripts</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem;">CEO/CFO remarks, macroeconomic drivers, freight/tariff commentary, Q&amp;A sessions.</div>
-          </div>
-          <div class="report-type-card">
-            <div class="report-type-name"><span>⚡</span> 8-K Filings &amp; Press Releases</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem;">Material unscheduled corporate events, acquisitions, guidance adjustments.</div>
-          </div>
-          <div class="report-type-card">
-            <div class="report-type-name"><span>📊</span> Investor Presentations</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem;">Capital allocation plans, long-term CAGR targets, investor day slide decks.</div>
-          </div>
-          <div class="report-type-card">
-            <div class="report-type-name"><span>📈</span> Equity Research Reports</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem;">Analyst valuation models, price targets, discount rate assumptions.</div>
+            <div style="font-size: 0.72rem; color: var(--cf-text-muted); line-height: 1.45;">
+              • 10-Q Quarterly Results<br>
+              • 10-K Consolidated Reports<br>
+              • Earnings Call Transcripts<br>
+              • 8-K Event Filings &amp; Decks
+            </div>
           </div>
         </div>
-      </div>
+      </aside>
 
-    </section>
-
-    <!-- 3. Step 2: Evaluation Mode Tabs -->
-    <section class="step-section">
-      <div class="step-header">
-        <div>
-          <span class="step-badge">Step 2: Choose Evaluation Mode</span>
-          <div class="step-title" style="margin-top: 0.35rem;">Benchmark Tests or Financial AI Chat Assistant</div>
+      <!-- Right: Main Evaluation & Chat Console -->
+      <section class="console-panel">
+        
+        <!-- Tab Navigation -->
+        <div class="console-nav">
+          <button class="console-tab active" id="tabBtnChat" onclick="switchConsoleTab('chat')">
+            💬 Mode B: Financial Research Chat
+          </button>
+          <button class="console-tab" id="tabBtnBench" onclick="switchConsoleTab('bench')">
+            ⚡ Mode A: Prewritten Benchmarks
+          </button>
         </div>
-      </div>
 
-      <!-- Tabs Navigation -->
-      <div class="tabs-nav">
-        <button class="tab-btn" id="tabBtnBenchmarks" onclick="switchTab('benchmarks')">
-          ⚡ Mode A: Prewritten Benchmark Tests
-        </button>
-        <button class="tab-btn active" id="tabBtnPrompt" onclick="switchTab('prompt')">
-          💬 Mode B: Financial AI Chat Assistant
-        </button>
-      </div>
+        <!-- Mode B: Chat Console Pane -->
+        <div class="tab-content active" id="tabContentChat">
+          <div class="chat-history" id="chatLog"></div>
 
-      <!-- Tab A: Prewritten Benchmarks -->
-      <div class="tab-pane" id="tabPaneBenchmarks">
-        <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
-          Click any benchmark scenario to immediately execute and verify how PeriodGuard catches or passes the case:
-        </div>
-        <div class="benchmarks-grid" id="benchmarksContainer"></div>
-      </div>
-
-      <!-- Tab B: Chat-Like Financial AI Workbench -->
-      <div class="tab-pane active" id="tabPanePrompt">
-        <div class="chat-container">
-          
-          <!-- Live Chat Log -->
-          <div class="chat-log" id="chatLog"></div>
-
-          <!-- Chat Input Bar -->
-          <div class="chat-input-wrapper">
-            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question across your ingested PDFs in plain English (e.g. What does Acme Industries do? or What was net revenue in Q4?)..." onkeydown="handleTextareaKeyDown(event)"></textarea>
+          <!-- Chat Input -->
+          <div class="chat-box-wrap">
+            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question (e.g., What does Acme Industries do? or What was Q4 EBITDA margin?)..." onkeydown="handleKey(event)"></textarea>
             
-            <div class="chat-controls-bar">
-              <div class="inline-param-group">
-                <span style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-family: var(--font-mono);">As-Of:</span>
-                <input type="date" id="asOfDateInput" class="param-input" value="2025-05-15" title="As-Of Date Cutoff">
-                <input type="text" id="companyInput" class="param-input" value="Acme Industries" style="width: 120px;" title="Company Name (Leave blank to search all)">
-                <input type="text" id="periodInput" class="param-input" value="Q4 FY25" style="width: 75px;" title="Reporting Period">
-                <select id="engineSelect" class="param-input" onchange="toggleApiKeyField()">
+            <div class="chat-toolbar">
+              <div class="toolbar-inputs">
+                <span style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-dim);">AS-OF:</span>
+                <input type="date" id="asOfDateInput" class="input-compact" value="2025-05-15">
+                <input type="text" id="companyInput" class="input-compact" value="Acme Industries" style="width: 110px;" placeholder="Company">
+                <input type="text" id="periodInput" class="input-compact" value="Q4 FY25" style="width: 70px;" placeholder="Period">
+                <select id="engineSelect" class="input-compact" onchange="toggleApiInput()">
                   <option value="deterministic">Deterministic RAG</option>
                   <option value="llm">Live LLM (Groq/OpenAI)</option>
                 </select>
-                <input type="password" id="apiKeyInput" class="param-input" placeholder="API Key (Optional)" style="display: none; width: 130px;">
+                <input type="password" id="apiKeyInput" class="input-compact" placeholder="API Key (Optional)" style="display: none; width: 120px;">
               </div>
 
-              <button id="btnRunCustomPrompt" class="btn btn-primary" onclick="sendChatMessage()">
-                <span>⚡ Ask Assistant</span>
-              </button>
+              <button class="btn btn-primary" id="btnSend" onclick="sendPrompt()">Ask Assistant</button>
             </div>
 
             <!-- Quick Suggestions -->
-            <div class="sample-prompts-bar">
-              <span style="font-size: 0.72rem; color: var(--text-dim);">Suggestions:</span>
-              <button class="sample-pill" onclick="setChatPrompt('What does Acme Industries do?')">What does Acme Industries do?</button>
-              <button class="sample-pill" onclick="setChatPrompt('What was the EBITDA margin of Acme Industries in Q4 FY25?')">Q4 EBITDA margin?</button>
-              <button class="sample-pill" onclick="setChatPrompt('What was total net revenue for Q4 FY25?')">Q4 Total Revenue?</button>
-              <button class="sample-pill" onclick="setChatPrompt('As of 15 May 2025, did Acme Industries EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give?')">Future Leak Trap</button>
+            <div style="display: flex; gap: 0.35rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center;">
+              <span style="font-size: 0.7rem; color: var(--cf-text-dim);">Quick queries:</span>
+              <button class="btn btn-subtle" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;" onclick="setQuery('What does Acme Industries do?')">What does Acme do?</button>
+              <button class="btn btn-subtle" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;" onclick="setQuery('What was the EBITDA margin of Acme Industries in Q4 FY25?')">Q4 EBITDA Margin?</button>
+              <button class="btn btn-subtle" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;" onclick="setQuery('What was total net revenue for Q4 FY25?')">Q4 Total Revenue?</button>
+              <button class="btn btn-subtle" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;" onclick="setQuery('As of 15 May 2025, did Acme Industries EBITDA margin improve in Q4 FY25 versus Q3 FY25, and what reason did management give?')">Future Leak Trap</button>
             </div>
-
           </div>
-
         </div>
-      </div>
 
-      <!-- Why PeriodGuard is Better than Naive RAG Explainer -->
-      <section class="comparison-explainer">
-        <div class="comp-header" onclick="toggleComparison()">
-          <h3>
-            <span>🛡️</span> Why PeriodGuard is Better Than Naive RAG
-          </h3>
-          <span class="toggle-arrow" id="compArrow">▼</span>
+        <!-- Mode A: Benchmarks Pane -->
+        <div class="tab-content" id="tabContentBench">
+          <div style="font-size: 0.82rem; color: var(--cf-text-muted); margin-bottom: 0.85rem;">
+            Click any benchmark trap to evaluate temporal gating performance against baseline retrieval:
+          </div>
+          <div class="benchmarks-grid" id="benchmarksContainer"></div>
         </div>
-        
-        <div class="comp-body" id="compBody">
-          <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.85rem; line-height: 1.5;">
-            In standard RAG, the bot retrieves any text with matching keywords. If a subsequent annual report mentions historical figures, naive RAG cites it with full confidence—<strong>silently leaking future information</strong>. 
-            PeriodGuard evaluates the prompt, enforces strict metadata cutoff boundaries, and guarantees that citations are safe to use for historical and investment analysis.
-          </p>
 
-          <div class="diff-grid">
-            <!-- Broken Naive RAG column -->
-            <div class="diff-box failed">
-              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #fb7185; margin-bottom: 0.45rem;">
-                ✗ Naive RAG (Unfiltered Citation Leak)
+        <!-- Comparison Dropdown -->
+        <div class="comparison-section">
+          <div class="comp-toggle-head" onclick="toggleComparison()">
+            <span>🛡️ PeriodGuard vs Naive RAG Evaluation Summary</span>
+            <span id="compChevron">▼</span>
+          </div>
+          <div class="comp-content" id="compBody">
+            <div class="diff-two-col">
+              <div class="diff-col err">
+                <strong style="color: var(--cf-red);">✗ Naive RAG Baseline (Unfiltered)</strong>
+                <div id="naiveSummary" style="margin-top: 0.35rem; color: #7f1d1d;"></div>
+                <div id="naiveDetails" style="font-family: var(--cf-font-mono); font-size: 0.72rem; margin-top: 0.4rem; color: var(--cf-red);"></div>
               </div>
-              <div id="naiveRagSummary" style="font-size: 0.82rem; color: #fecdd3; line-height: 1.5; margin-bottom: 0.65rem;"></div>
-              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #fda4af; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;" id="naiveRagFailDetails"></div>
-            </div>
-
-            <!-- PeriodGuard Verified column -->
-            <div class="diff-box passed">
-              <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #34d399; margin-bottom: 0.45rem;">
-                ✓ PeriodGuard Gate (Period-Correct)
-              </div>
-              <div style="font-size: 0.82rem; color: #a7f3d0; line-height: 1.5; margin-bottom: 0.65rem;">
-                Enforces strict publication date filtering (<strong>publication_date &le; as_of_date</strong>). Excludes later documents and only cites evidence available as of the cutoff date.
-              </div>
-              <div style="font-size: 0.74rem; font-family: var(--font-mono); color: #6ee7b7; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px;">
-                ✓ 4/4 Checks Passed: Citation Resolved, As-Of Safe, Entity Aligned, Facts Supported.
+              <div class="diff-col ok">
+                <strong style="color: var(--cf-green);">✓ PeriodGuard Gate (Period-Correct)</strong>
+                <div style="margin-top: 0.35rem; color: #065f46;">
+                  Enforces strict metadata cutoff (<code>publication_date &le; as_of_date</code>). Excludes future reports and verifies claims against valid quotes.
+                </div>
+                <div style="font-family: var(--cf-font-mono); font-size: 0.72rem; margin-top: 0.4rem; color: var(--cf-green);">
+                  ✓ 4/4 Checks Passed: Citation Resolution, Temporal Gate, Entity Alignment, Fact Support.
+                </div>
               </div>
             </div>
           </div>
         </div>
+
       </section>
 
-    </section>
-
-  </div>
-
-  <!-- Educational Guide Modal: What is Temporal Gating? -->
-  <div class="modal-backdrop" id="guideBackdrop" onclick="closeGuideModal()"></div>
-  <div class="modal-box" id="guideModal">
-    <div class="modal-head">
-      <h3>🛡️ PeriodGuard Reliability Guide</h3>
-      <button class="btn-close" onclick="closeGuideModal()">×</button>
     </div>
-    <div style="max-height: 400px; overflow-y: auto;">
-      <div class="guide-section-box">
-        <div class="guide-title">⏳ What is "Temporal Gating"?</div>
-        <div class="guide-text">
-          When conducting financial backtesting, audit research, or historical analysis, an analyst asks a question as of a specific point in time (e.g. <em>15 May 2025</em>). 
-          <strong>Temporal Gating</strong> guarantees that the AI only retrieves and cites filings published on or before that exact date (<code>publication_date &le; as_of_date</code>).
-        </div>
+  </main>
+
+  <!-- Reliability Guide Modal -->
+  <div class="modal-veil" id="guideVeil" onclick="closeGuide()"></div>
+  <div class="modal-window" id="guideModal">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--cf-border); padding-bottom: 0.6rem;">
+      <h3 style="font-size: 1.05rem; font-weight: 700;">PeriodGuard Reliability Guide</h3>
+      <button class="btn btn-subtle" onclick="closeGuide()">×</button>
+    </div>
+    <div style="font-size: 0.84rem; color: var(--cf-text); display: flex; flex-direction: column; gap: 0.85rem; max-height: 420px; overflow-y: auto;">
+      <div>
+        <strong>⏳ What is Temporal Gating?</strong>
+        <p style="color: var(--cf-text-muted); margin-top: 0.2rem;">
+          In financial research and backtesting, questions are asked as of a specific point in time (e.g. <em>15 May 2025</em>). Temporal Gating guarantees the RAG pipeline only cites documents published on or before that date.
+        </p>
       </div>
 
-      <div class="guide-section-box">
-        <div class="guide-title">🚨 What does "FAILED TEMPORAL GATE" mean?</div>
-        <div class="guide-text">
-          Standard naive RAG does not understand time. It searches by keyword similarity. If an August 2025 report mentions 2025 numbers, standard RAG will cite it for a May 2025 question—<strong>silently leaking future knowledge</strong> into a historical decision. When this happens, PeriodGuard flags a <strong>FUTURE_PERIOD_LEAK</strong>.
-        </div>
+      <div>
+        <strong>🚨 What does "FAILED TEMPORAL GATE" mean?</strong>
+        <p style="color: var(--cf-text-muted); margin-top: 0.2rem;">
+          Standard RAG searches by keyword similarity alone. If an August 2025 report mentions historical figures, naive RAG cites it for a May 2025 question—<strong>silently leaking future knowledge</strong>. PeriodGuard flags this as a <code>FUTURE_PERIOD_LEAK</code>.
+        </p>
       </div>
 
-      <div class="guide-section-box">
-        <div class="guide-title">🔍 The 4 Reliability Validators</div>
-        <div class="guide-text">
-          <ul style="padding-left: 1.2rem; margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.35rem;">
-            <li><strong>1. Citation Resolution:</strong> Every claim must link to an actual file and page with verbatim matching text.</li>
-            <li><strong>2. Temporal Consistency:</strong> No document published after the as-of cutoff date can be cited.</li>
-            <li><strong>3. Entity &amp; Period Alignment:</strong> Prevents citations from peer companies or wrong fiscal periods.</li>
-            <li><strong>4. Citation Support Proxy:</strong> Verifies numbers, units (bps, %, $), and causal facts against the cited evidence.</li>
-          </ul>
-        </div>
+      <div>
+        <strong>🔍 The 4 Deterministic Validators:</strong>
+        <ul style="padding-left: 1.2rem; margin-top: 0.3rem; color: var(--cf-text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
+          <li><strong>Citation Resolution:</strong> Verifies every claim links to a valid document, page, and verbatim quote.</li>
+          <li><strong>Temporal Consistency:</strong> Enforces <code>publication_date &le; as_of_date</code>.</li>
+          <li><strong>Entity &amp; Period Alignment:</strong> Prevents peer-company (e.g. Globex vs Acme) and fiscal period contamination.</li>
+          <li><strong>Citation Support Proxy:</strong> Verifies claimed metrics, numbers, and units (bps, %, $) against source quotes.</li>
+        </ul>
       </div>
     </div>
-    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
-      <button class="btn btn-primary" onclick="closeGuideModal()">Got It</button>
+    <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
+      <button class="btn btn-primary" onclick="closeGuide()">Close</button>
     </div>
   </div>
 
-  <!-- Document Corpus Modal -->
-  <div class="modal-backdrop" id="corpusBackdrop" onclick="closeCorpusModal()"></div>
-  <div class="modal-box" id="corpusModal" style="max-width: 680px;">
-    <div class="modal-head">
-      <h3>Active Document Corpus (<span id="corpusModalCount">4</span>)</h3>
-      <button class="btn-close" onclick="closeCorpusModal()">×</button>
+  <!-- Upload Modal -->
+  <div class="modal-veil" id="uploadVeil" onclick="closeUploadModal()"></div>
+  <div class="modal-window" id="uploadModal">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--cf-border); padding-bottom: 0.6rem;">
+      <h3 style="font-size: 1.05rem; font-weight: 700;">Ingest Financial PDF / Document</h3>
+      <button class="btn btn-subtle" onclick="closeUploadModal()">×</button>
     </div>
-    <div style="max-height: 340px; overflow-y: auto; margin-bottom: 1.25rem;" id="corpusTableBox"></div>
-    <div style="display: flex; justify-content: space-between;">
-      <button class="btn btn-secondary" onclick="resetCorpus()">🔄 Reset to Default Fixture</button>
-      <button class="btn btn-primary" onclick="closeCorpusModal()">Done</button>
-    </div>
-  </div>
-
-  <!-- Upload PDF / Document Modal -->
-  <div class="modal-backdrop" id="uploadBackdrop" onclick="closeUploadModal()"></div>
-  <div class="modal-box" id="uploadModal">
-    <div class="modal-head">
-      <h3>📄 Ingest Financial PDF / Filing</h3>
-      <button class="btn-close" onclick="closeUploadModal()">×</button>
-    </div>
-    <form onsubmit="handleUploadSubmit(event)">
-      <div style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.25rem;">
+    <form onsubmit="handleUpload(event)" style="display: flex; flex-direction: column; gap: 0.75rem;">
+      <div>
+        <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">File (.pdf, .txt, .json)</label>
+        <input type="file" id="upFile" class="input-compact" style="width: 100%; margin-top: 0.25rem;" required accept=".pdf,.txt,.json">
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
         <div>
-          <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Select PDF or Text File (.pdf, .txt, .json)</label>
-          <input type="file" id="uploadFileInput" class="param-input" style="width:100%; margin-top: 0.25rem;" required accept=".pdf,.txt,.json" onchange="autoFillUploadMeta(event)">
+          <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Company</label>
+          <input type="text" id="upCompany" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="Acme Industries" required>
         </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
-          <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Company / Entity</label>
-            <input type="text" id="uploadCompanyInput" class="param-input" style="width:100%; margin-top: 0.25rem;" value="Acme Industries" required placeholder="e.g. Acme Industries, Apple, Tesla">
-          </div>
-          <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Document Type</label>
-            <select id="uploadTypeInput" class="param-input" style="width:100%; margin-top: 0.25rem;">
-              <option value="10-Q Quarterly Report">10-Q Quarterly Report</option>
-              <option value="10-K Annual Report">10-K Annual Report</option>
-              <option value="Earnings Call Transcript">Earnings Call Transcript</option>
-              <option value="8-K Material Filing">8-K Material Filing</option>
-              <option value="Investor Deck">Investor Deck</option>
-              <option value="Equity Research Report">Equity Research Report</option>
-              <option value="Financial Press Release">Financial Press Release</option>
-            </select>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
-          <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Publication Date</label>
-            <input type="date" id="uploadDateInput" class="param-input" style="width:100%; margin-top: 0.25rem;" value="2025-05-10" required>
-          </div>
-          <div>
-            <label style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Reporting Period</label>
-            <input type="text" id="uploadPeriodInput" class="param-input" style="width:100%; margin-top: 0.25rem;" value="Q4 FY25" required placeholder="e.g. Q4 FY25, FY25, Q1 2025">
-          </div>
-        </div>
-
-        <div style="padding: 0.6rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 6px; font-size: 0.75rem; color: #a5b4fc;">
-          💡 <strong>Tip for Testing Temporal Leaks:</strong> Ingest an older 10-Q (e.g. May 2025) and a newer 10-K (e.g. Aug 2025). Set your chat cutoff date to May 2025 and ask a question to test if naive RAG leaks future data!
+        <div>
+          <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Document Type</label>
+          <select id="upType" class="input-compact" style="width: 100%; margin-top: 0.25rem;">
+            <option value="10-Q Quarterly Report">10-Q Quarterly Report</option>
+            <option value="10-K Annual Report">10-K Annual Report</option>
+            <option value="Earnings Call Transcript">Earnings Call Transcript</option>
+            <option value="8-K Material Filing">8-K Material Filing</option>
+          </select>
         </div>
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-        <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
-        <button type="submit" id="btnUploadSubmit" class="btn btn-primary">Ingest PDF &amp; Index Text</button>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+        <div>
+          <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Publication Date</label>
+          <input type="date" id="upDate" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="2025-05-10" required>
+        </div>
+        <div>
+          <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Reporting Period</label>
+          <input type="text" id="upPeriod" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="Q4 FY25" required>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+        <button type="button" class="btn btn-outline" onclick="closeUploadModal()">Cancel</button>
+        <button type="submit" id="btnUp" class="btn btn-primary">Ingest Document</button>
       </div>
     </form>
   </div>
 
-  <!-- Evidence Inspector Slide-over Drawer -->
-  <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
-  <aside class="inspector-drawer" id="inspectorDrawer">
-    <div class="drawer-head">
-      <div>
-        <div style="font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase;">Evidence Inspector</div>
-        <h3 id="drawerDocId" style="font-family: var(--font-display); font-size: 1.15rem;">Document Metadata</h3>
-      </div>
-      <button class="btn-close" onclick="closeDrawer()">×</button>
+  <!-- Corpus Management Modal -->
+  <div class="modal-veil" id="corpusVeil" onclick="closeCorpusModal()"></div>
+  <div class="modal-window" id="corpusModal" style="max-width: 640px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--cf-border); padding-bottom: 0.6rem;">
+      <h3 style="font-size: 1.05rem; font-weight: 700;">Active Document Corpus</h3>
+      <button class="btn btn-subtle" onclick="closeCorpusModal()">×</button>
     </div>
-    <div class="drawer-content" id="drawerBody"></div>
+    <div id="corpusTableWrap" style="max-height: 320px; overflow-y: auto; margin-bottom: 1rem;"></div>
+    <div style="display: flex; justify-content: space-between;">
+      <button class="btn btn-outline" onclick="resetCorpus()">Reset to Default</button>
+      <button class="btn btn-primary" onclick="closeCorpusModal()">Done</button>
+    </div>
+  </div>
+
+  <!-- Evidence Inspector Drawer -->
+  <div class="drawer-veil" id="drawerVeil" onclick="closeDrawer()"></div>
+  <aside class="drawer-window" id="drawer">
+    <div class="drawer-top">
+      <div>
+        <div style="font-family: var(--cf-font-mono); font-size: 0.68rem; color: var(--cf-text-dim); text-transform: uppercase;">Evidence Inspector</div>
+        <strong id="drawerTitle" style="font-size: 0.95rem;">Document Metadata</strong>
+      </div>
+      <button class="btn btn-subtle" onclick="closeDrawer()">×</button>
+    </div>
+    <div class="drawer-scroll" id="drawerContent"></div>
   </aside>
 
   <script id="initData" type="application/json">__INITIAL_DATA__</script>
@@ -1546,199 +1192,165 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
   <script>
     let appState = JSON.parse(document.getElementById('initData').textContent);
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    function esc(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function toggleApiKeyField() {
+    function toggleApiInput() {
       const isLlm = document.getElementById('engineSelect').value === 'llm';
       document.getElementById('apiKeyInput').style.display = isLlm ? 'inline-block' : 'none';
     }
 
-    function openGuideModal() {
-      document.getElementById('guideModal').classList.add('active');
-      document.getElementById('guideBackdrop').classList.add('active');
+    function openGuide() {
+      document.getElementById('guideModal').classList.add('show');
+      document.getElementById('guideVeil').classList.add('show');
+    }
+    function closeGuide() {
+      document.getElementById('guideModal').classList.remove('show');
+      document.getElementById('guideVeil').classList.remove('show');
     }
 
-    function closeGuideModal() {
-      document.getElementById('guideModal').classList.remove('active');
-      document.getElementById('guideBackdrop').classList.remove('active');
+    function openUploadModal() {
+      document.getElementById('uploadModal').classList.add('show');
+      document.getElementById('uploadVeil').classList.add('show');
+    }
+    function closeUploadModal() {
+      document.getElementById('uploadModal').classList.remove('show');
+      document.getElementById('uploadVeil').classList.remove('show');
     }
 
-    function autoFillUploadMeta(event) {
-      const file = event.target.files[0];
-      if (file) {
-        const name = file.name.toLowerCase();
-        if (name.includes('10-k') || name.includes('annual')) {
-          document.getElementById('uploadTypeInput').value = '10-K Annual Report';
-        } else if (name.includes('10-q') || name.includes('quarter') || name.includes('q4') || name.includes('q3')) {
-          document.getElementById('uploadTypeInput').value = '10-Q Quarterly Report';
-        } else if (name.includes('call') || name.includes('transcript')) {
-          document.getElementById('uploadTypeInput').value = 'Earnings Call Transcript';
-        }
-      }
+    function openCorpusModal() {
+      document.getElementById('corpusModal').classList.add('show');
+      document.getElementById('corpusVeil').classList.add('show');
+      renderCorpusTable();
+    }
+    function closeCorpusModal() {
+      document.getElementById('corpusModal').classList.remove('show');
+      document.getElementById('corpusVeil').classList.remove('show');
     }
 
-    function renderChatMessage(question, reportData) {
-      const correct = reportData.correct_mode;
-      const broken = reportData.broken_mode;
-      const isPass = correct.status === 'PASS';
-      const msgId = 'msg_' + Math.random().toString(36).substr(2, 9);
+    function switchConsoleTab(t) {
+      document.getElementById('tabBtnChat').classList.toggle('active', t === 'chat');
+      document.getElementById('tabBtnBench').classList.toggle('active', t === 'bench');
+      document.getElementById('tabContentChat').classList.toggle('active', t === 'chat');
+      document.getElementById('tabContentBench').classList.toggle('active', t === 'bench');
+    }
 
-      const citationsHtml = (correct.claims || []).map(claim => {
-        return (claim.citations || []).map(cit => {
-          const doc = (correct.retrieved_documents || []).find(d => d.id === cit.document_id) || {};
+    function toggleComparison() {
+      const b = document.getElementById('compBody');
+      const c = document.getElementById('compChevron');
+      b.classList.toggle('open');
+      c.textContent = b.classList.contains('open') ? '▲' : '▼';
+    }
+
+    function renderChatMessage(q, data) {
+      const cor = data.correct_mode;
+      const brk = data.broken_mode;
+      const pass = cor.status === 'PASS';
+      const msgId = 'v_' + Math.random().toString(36).substr(2, 8);
+
+      const citHtml = (cor.claims || []).map(claim => {
+        return (claim.citations || []).map(c => {
+          const doc = (cor.retrieved_documents || []).find(d => d.id === c.document_id) || {};
           return `
-            <button class="citation-btn" onclick="openInspector('${escapeHtml(cit.document_id)}', '${escapeHtml(cit.quoted_text)}')">
-              <div class="cit-top">
-                <span>📄 ${escapeHtml(cit.document_id)} (Page ${cit.page})</span>
-                <span>Pub: ${escapeHtml(doc.publication_date || '—')}</span>
+            <button class="citation-pill-btn" onclick="inspectDoc('${esc(c.document_id)}', '${esc(c.quoted_text)}')">
+              <div style="display: flex; justify-content: space-between; font-family: var(--cf-font-mono); font-size: 0.72rem; color: var(--cf-primary);">
+                <span>📄 ${esc(c.document_id)} (Page ${c.page})</span>
+                <span style="color: var(--cf-text-dim);">Pub: ${esc(doc.publication_date || '—')}</span>
               </div>
-              <div>"${escapeHtml(cit.quoted_text)}"</div>
+              <div style="color: var(--cf-text-muted); margin-top: 0.2rem;">"${esc(c.quoted_text)}"</div>
             </button>
           `;
         }).join('');
       }).join('');
 
-      const checksHtml = Object.entries(correct.checks || {}).map(([name, status]) => {
-        const passed = status === 'PASS';
-        const label = name.replace(/_/g, ' ').toUpperCase();
+      const checksHtml = Object.entries(cor.checks || {}).map(([name, status]) => {
+        const ok = status === 'PASS';
         return `
-          <div class="check-row">
-            <span class="check-name">${label}</span>
-            <span class="${passed ? 'check-status-pass' : 'check-status-fail'}">${passed ? '✓ PASS' : '✗ FAIL'}</span>
+          <div style="display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid var(--cf-border-subtle); font-size: 0.74rem;">
+            <span style="font-family: var(--cf-font-mono); color: var(--cf-text-muted);">${esc(name.toUpperCase())}</span>
+            <span style="font-family: var(--cf-font-mono); font-weight: 700; color: ${ok ? 'var(--cf-green)' : 'var(--cf-red)'};">${ok ? '✓ PASS' : '✗ FAIL'}</span>
           </div>
         `;
       }).join('');
 
-      const assistantHtml = `
-        <div class="chat-bubble-assistant">
-          <div class="assistant-head">
-            <div style="font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: #93c5fd; display: flex; align-items: center; gap: 0.4rem;">
-              <span>🤖</span> PeriodGuard Verified Research Assistant
-            </div>
-            <div class="gate-badge ${isPass ? 'safe' : 'unsafe'}" onclick="toggleMsgChecks('${msgId}')" title="Click to view 4-validator breakdown">
-              ${isPass ? '✓ VERIFIED SAFE (Period-Correct)' : '🚨 FAILED TEMPORAL GATE'}
-              <span style="font-size: 0.65rem; opacity: 0.8; margin-left: 0.2rem;">ℹ️</span>
-            </div>
-          </div>
-          
-          <div class="chat-answer-text">
-            ${escapeHtml(correct.answer_text || (correct.claims && correct.claims.length > 0 ? correct.claims.map(c => c.text).join(' ') : 'No safe evidence published on or before cutoff date.'))}
+      const botHtml = `
+        <div class="msg-bot">
+          <div class="msg-head">
+            <strong style="font-size: 0.85rem; color: var(--cf-text);">PeriodGuard Research Assistant</strong>
+            <span class="gate-indicator ${pass ? 'pass' : 'fail'}" onclick="toggleBreakdown('${msgId}')">
+              ${pass ? '✓ VERIFIED SAFE' : '🚨 FAILED TEMPORAL GATE'}
+              <span style="font-size: 0.65rem;">ℹ️</span>
+            </span>
           </div>
 
-          ${citationsHtml ? `
-            <div class="citations-section-title">Verified Evidence Citations (Click to inspect source):</div>
-            <div class="citations-grid">${citationsHtml}</div>
+          <div class="msg-text">
+            ${esc(cor.answer_text || (cor.claims && cor.claims.length > 0 ? cor.claims.map(c => c.text).join(' ') : 'No safe evidence found.'))}
+          </div>
+
+          ${citHtml ? `
+            <div class="citations-wrap">
+              <div style="font-family: var(--cf-font-mono); font-size: 0.68rem; color: var(--cf-text-dim); text-transform: uppercase;">Verified Evidence Citations:</div>
+              ${citHtml}
+            </div>
           ` : ''}
 
-          <div id="${msgId}" class="validation-breakdown-box" style="display: none;">
-            <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.4rem; font-weight: 700;">
+          <div id="${msgId}" style="display: none; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px solid var(--cf-border-subtle);">
+            <div style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-dim); text-transform: uppercase; font-weight: 700; margin-bottom: 0.35rem;">
               Reliability Gate Checks Breakdown:
             </div>
             ${checksHtml}
-            ${correct.failures && correct.failures.length > 0 ? `
-              <div style="margin-top: 0.45rem; padding: 0.4rem; background: var(--rose-bg); border: 1px solid var(--rose-border); border-radius: 4px; font-size: 0.74rem; color: #fecdd3;">
-                ${correct.failures.map(f => `<div>• ${escapeHtml(f.message)}</div>`).join('')}
-              </div>
-            ` : ''}
           </div>
         </div>
       `;
 
-      const chatLog = document.getElementById('chatLog');
-      if (question) {
-        chatLog.innerHTML += `<div class="chat-bubble-user">${escapeHtml(question)}</div>`;
+      const log = document.getElementById('chatLog');
+      if (q) {
+        log.innerHTML += `<div class="msg-user">${esc(q)}</div>`;
       }
-      chatLog.innerHTML += assistantHtml;
-      chatLog.scrollTop = chatLog.scrollHeight;
+      log.innerHTML += botHtml;
+      log.scrollTop = log.scrollHeight;
 
-      // Update comparison banner details
-      const fail = broken.failures.find(f => f.type === 'FUTURE_PERIOD_LEAK') || broken.failures[0];
+      // Update comparison
+      const fail = brk.failures.find(f => f.type === 'FUTURE_PERIOD_LEAK') || brk.failures[0];
       if (fail) {
-        document.getElementById('naiveRagSummary').innerHTML = `
-          Naive RAG retrieved <strong>${escapeHtml(fail.document_id)}</strong> and generated an answer citing future metrics.
-        `;
-        document.getElementById('naiveRagFailDetails').textContent = `🚨 Leakage Detected: Published ${fail.publication_date} vs As-Of ${fail.as_of_date} (+${Math.round((new Date(fail.publication_date) - new Date(fail.as_of_date))/(1000*60*60*24))} days in future)`;
+        document.getElementById('naiveSummary').innerHTML = `Naive RAG retrieved <strong>${esc(fail.document_id)}</strong> and leaked subsequent figures.`;
+        document.getElementById('naiveDetails').textContent = `🚨 Leak: Published ${fail.publication_date} vs As-Of ${fail.as_of_date}`;
       } else {
-        document.getElementById('naiveRagSummary').textContent = "Both modes passed for this specific cutoff boundary.";
-        document.getElementById('naiveRagFailDetails').textContent = "No temporal leakage triggered.";
+        document.getElementById('naiveSummary').textContent = "Both modes passed for this specific cutoff.";
+        document.getElementById('naiveDetails').textContent = "No temporal leak.";
       }
     }
 
-    function toggleMsgChecks(id) {
+    function toggleBreakdown(id) {
       const el = document.getElementById(id);
-      if (el) {
-        el.style.display = el.style.display === 'none' ? 'block' : 'none';
-      }
+      if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
     }
 
-    function renderBenchmarks() {
-      fetch('/api/presets')
-        .then(r => r.json())
-        .then(presets => {
-          const container = document.getElementById('benchmarksContainer');
-          container.innerHTML = presets.map(p => `
-            <div class="benchmark-card" onclick="runBenchmarkPreset('${escapeHtml(p.id)}')">
-              <div>
-                <div class="benchmark-top">
-                  <span class="badge-pill ${escapeHtml(p.badge_color || 'indigo')}">${escapeHtml(p.badge || 'Benchmark')}</span>
-                  <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">Cutoff: ${escapeHtml(p.as_of_date)}</span>
-                </div>
-                <div style="font-weight: 700; font-size: 0.95rem; margin: 0.4rem 0 0.2rem; color: #ffffff;">${escapeHtml(p.title)}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">${escapeHtml(p.description)}</div>
-              </div>
-              <div style="font-size: 0.76rem; color: var(--cyan-500); font-weight: 600;">⚡ Click to Run Scenario &rarr;</div>
-            </div>
-          `).join('');
-        });
+    function setQuery(t) {
+      document.getElementById('promptInput').value = t;
+      sendPrompt();
     }
 
-    function switchTab(tab) {
-      document.getElementById('tabBtnBenchmarks').classList.toggle('active', tab === 'benchmarks');
-      document.getElementById('tabBtnPrompt').classList.toggle('active', tab === 'prompt');
-      document.getElementById('tabPaneBenchmarks').classList.toggle('active', tab === 'benchmarks');
-      document.getElementById('tabPanePrompt').classList.toggle('active', tab === 'prompt');
-    }
-
-    function setChatPrompt(text) {
-      document.getElementById('promptInput').value = text;
-      sendChatMessage();
-    }
-
-    function handleTextareaKeyDown(e) {
+    function handleKey(e) {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendChatMessage();
+        sendPrompt();
       }
     }
 
-    async function runBenchmarkPreset(presetId) {
-      const resp = await fetch('/api/presets');
-      const presets = await resp.json();
-      const p = presets.find(x => x.id === presetId);
-      if (p) {
-        switchTab('prompt');
-        document.getElementById('promptInput').value = p.question;
-        document.getElementById('companyInput').value = p.company;
-        document.getElementById('asOfDateInput').value = p.as_of_date;
-        document.getElementById('periodInput').value = p.as_of_reporting_period;
-        sendChatMessage();
-      }
-    }
+    async function sendPrompt() {
+      const prompt = document.getElementById('promptInput');
+      const q = prompt.value.trim();
+      if (!q) return;
 
-    async function sendChatMessage() {
-      const promptInput = document.getElementById('promptInput');
-      const question = promptInput.value.trim();
-      if (!question) return;
-
-      const btn = document.getElementById('btnRunCustomPrompt');
+      const btn = document.getElementById('btnSend');
       btn.disabled = true;
-      btn.innerHTML = '<span>⚡ Evaluating...</span>';
+      btn.textContent = 'Evaluating...';
 
       const payload = {
-        question: question,
+        question: q,
         company: document.getElementById('companyInput').value,
         as_of_date: document.getElementById('asOfDateInput').value,
         as_of_reporting_period: document.getElementById('periodInput').value,
@@ -1746,7 +1358,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         api_key: document.getElementById('apiKeyInput').value || null
       };
 
-      promptInput.value = '';
+      prompt.value = '';
 
       try {
         const resp = await fetch('/api/evaluate/custom', {
@@ -1756,108 +1368,84 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         });
         if (resp.ok) {
           appState = await resp.json();
-          renderChatMessage(question, appState);
+          renderChatMessage(q, appState);
         }
-      } catch (err) {
-        console.error(err);
+      } catch (e) {
+        console.error(e);
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '<span>⚡ Ask Assistant</span>';
+        btn.textContent = 'Ask Assistant';
       }
     }
 
-    function toggleComparison() {
-      const body = document.getElementById('compBody');
-      const arrow = document.getElementById('compArrow');
-      body.classList.toggle('open');
-      arrow.classList.toggle('open');
-    }
-
-    function openInspector(docId, quotedText) {
-      const allDocs = appState.correct_mode.retrieved_documents.concat(appState.broken_mode.retrieved_documents);
-      const doc = allDocs.find(d => d.id === docId) || {
-        id: docId, company: 'Acme Industries', doc_type: 'Financial Filing', reporting_period: 'Q4 FY25', publication_date: '2025-05-10', page: 1, text: quotedText, source_url: 'Corpus'
-      };
-
-      const asOf = appState.case.as_of_date;
-      const isFuture = new Date(doc.publication_date) > new Date(asOf);
-
-      document.getElementById('drawerDocId').textContent = doc.id;
-      document.getElementById('drawerBody').innerHTML = `
-        <div>
-          <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Document Metadata</div>
-          <table class="meta-table">
-            <tr><td>Document Type</td><td>${escapeHtml(doc.doc_type)}</td></tr>
-            <tr><td>Entity</td><td>${escapeHtml(doc.company)}</td></tr>
-            <tr><td>Publication Date</td><td style="font-family: var(--font-mono); color: ${isFuture ? '#fb7185' : '#34d399'}; font-weight: 700;">${escapeHtml(doc.publication_date)}</td></tr>
-            <tr><td>Period</td><td>${escapeHtml(doc.reporting_period)}</td></tr>
-            <tr><td>Page</td><td>Page ${doc.page}</td></tr>
-            <tr><td>Provenance</td><td style="word-break: break-all; color: #93c5fd;">${escapeHtml(doc.source_url)}</td></tr>
-          </table>
-        </div>
-
-        <div>
-          <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Temporal Status</div>
-          <div style="padding: 0.75rem; background: ${isFuture ? 'rgba(244,63,94,0.12)' : 'rgba(16,185,129,0.12)'}; border: 1px solid ${isFuture ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}; border-radius: 8px; font-size: 0.8rem; color: ${isFuture ? '#fecdd3' : '#a7f3d0'};">
-            ${isFuture 
-              ? `🚨 <strong>FUTURE-PERIOD LEAK:</strong> Document published on ${doc.publication_date} violates the as-of cutoff boundary (${asOf}).`
-              : `✓ <strong>WITHIN CUTOFF:</strong> Published on ${doc.publication_date}, safe for as-of date (${asOf}).`}
+    async function renderBenchmarks() {
+      const resp = await fetch('/api/presets');
+      if (resp.ok) {
+        const presets = await resp.json();
+        document.getElementById('benchmarksContainer').innerHTML = presets.map(p => `
+          <div class="benchmark-card" onclick="runPreset('${esc(p.id)}')">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="badge-tag ${esc(p.badge_color || 'purple')}">${esc(p.badge || 'Test')}</span>
+                <span style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-dim);">${esc(p.as_of_date)}</span>
+              </div>
+              <strong style="font-size: 0.88rem; display: block; margin: 0.35rem 0 0.2rem;">${esc(p.title)}</strong>
+              <div style="font-size: 0.78rem; color: var(--cf-text-muted); line-height: 1.4;">${esc(p.description)}</div>
+            </div>
+            <div style="font-size: 0.74rem; font-weight: 600; color: var(--cf-primary);">⚡ Run Scenario &rarr;</div>
           </div>
-        </div>
-
-        <div>
-          <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Verbatim Evidence Quote</div>
-          <div class="quote-box">"${escapeHtml(quotedText || doc.text)}"</div>
-        </div>
-      `;
-
-      document.getElementById('inspectorDrawer').classList.add('active');
-      document.getElementById('drawerBackdrop').classList.add('active');
+        `).join('');
+      }
     }
 
-    function closeDrawer() {
-      document.getElementById('inspectorDrawer').classList.remove('active');
-      document.getElementById('drawerBackdrop').classList.remove('active');
+    async function runPreset(id) {
+      const resp = await fetch('/api/presets');
+      const presets = await resp.json();
+      const p = presets.find(x => x.id === id);
+      if (p) {
+        switchConsoleTab('chat');
+        document.getElementById('promptInput').value = p.question;
+        document.getElementById('companyInput').value = p.company;
+        document.getElementById('asOfDateInput').value = p.as_of_date;
+        document.getElementById('periodInput').value = p.as_of_reporting_period;
+        sendPrompt();
+      }
     }
 
-    async function updateCorpusCount() {
-      try {
-        const resp = await fetch('/api/corpus');
-        if (resp.ok) {
-          const docs = await resp.json();
-          document.getElementById('corpusCountBadge').textContent = docs.length;
-          document.getElementById('corpusModalCount').textContent = docs.length;
-        }
-      } catch (e) {}
-    }
-
-    async function openCorpusModal() {
-      document.getElementById('corpusModal').classList.add('active');
-      document.getElementById('corpusBackdrop').classList.add('active');
-
+    async function updateSidebarDocs() {
       const resp = await fetch('/api/corpus');
       if (resp.ok) {
         const docs = await resp.json();
-        const box = document.getElementById('corpusTableBox');
-        box.innerHTML = `
-          <table class="meta-table">
+        document.getElementById('countBadge').textContent = docs.length;
+        document.getElementById('sidebarDocList').innerHTML = docs.map(d => `
+          <div class="doc-item-row">
+            <div>
+              <div class="doc-item-title">${esc(d.id)}</div>
+              <div class="doc-item-meta">${esc(d.company)} • ${esc(d.publication_date)}</div>
+            </div>
+            <span class="doc-type-pill">${esc(d.reporting_period)}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function renderCorpusTable() {
+      const resp = await fetch('/api/corpus');
+      if (resp.ok) {
+        const docs = await resp.json();
+        document.getElementById('corpusTableWrap').innerHTML = `
+          <table class="clean-table">
             <thead>
-              <tr style="background: rgba(255,255,255,0.04); font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">
-                <th style="padding: 0.5rem 0.75rem; text-align: left;">ID</th>
-                <th style="padding: 0.5rem 0.75rem; text-align: left;">Company</th>
-                <th style="padding: 0.5rem 0.75rem; text-align: left;">Doc Type</th>
-                <th style="padding: 0.5rem 0.75rem; text-align: left;">Period</th>
-                <th style="padding: 0.5rem 0.75rem; text-align: left;">Published</th>
-              </tr>
+              <tr><th>ID</th><th>Company</th><th>Type</th><th>Period</th><th>Published</th></tr>
             </thead>
             <tbody>
               ${docs.map(d => `
                 <tr>
-                  <td style="font-family: var(--font-mono); color: #93c5fd;">${escapeHtml(d.id)}</td>
-                  <td>${escapeHtml(d.company)}</td>
-                  <td>${escapeHtml(d.doc_type)}</td>
-                  <td>${escapeHtml(d.reporting_period)}</td>
-                  <td style="font-family: var(--font-mono);">${escapeHtml(d.publication_date)}</td>
+                  <td style="font-family: var(--cf-font-mono);">${esc(d.id)}</td>
+                  <td>${esc(d.company)}</td>
+                  <td>${esc(d.doc_type)}</td>
+                  <td>${esc(d.reporting_period)}</td>
+                  <td style="font-family: var(--cf-font-mono);">${esc(d.publication_date)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1866,74 +1454,94 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       }
     }
 
-    function closeCorpusModal() {
-      document.getElementById('corpusModal').classList.remove('active');
-      document.getElementById('corpusBackdrop').classList.remove('active');
-    }
-
     async function resetCorpus() {
-      if (confirm('Reset corpus to original fixture?')) {
+      if (confirm('Reset corpus to default fixtures?')) {
         await fetch('/api/corpus/reset', { method: 'POST' });
+        updateSidebarDocs();
         closeCorpusModal();
-        sendChatMessage();
-        updateCorpusCount();
+        sendPrompt();
       }
     }
 
-    function openUploadModal() {
-      document.getElementById('uploadModal').classList.add('active');
-      document.getElementById('uploadBackdrop').classList.add('active');
+    function inspectDoc(docId, quote) {
+      const all = (appState.correct_mode.retrieved_documents || []).concat(appState.broken_mode.retrieved_documents || []);
+      const doc = all.find(d => d.id === docId) || { id: docId, company: 'Acme', doc_type: 'Filing', publication_date: '2025-05-10', page: 1, text: quote, source_url: 'Corpus' };
+      const asOf = appState.case.as_of_date;
+      const isFuture = new Date(doc.publication_date) > new Date(asOf);
+
+      document.getElementById('drawerTitle').textContent = doc.id;
+      document.getElementById('drawerContent').innerHTML = `
+        <div>
+          <div style="font-family: var(--cf-font-mono); font-size: 0.68rem; color: var(--cf-text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Metadata</div>
+          <table class="clean-table">
+            <tr><th>Company</th><td>${esc(doc.company)}</td></tr>
+            <tr><th>Doc Type</th><td>${esc(doc.doc_type)}</td></tr>
+            <tr><th>Publication Date</th><td style="font-family: var(--cf-font-mono); font-weight: 700; color: ${isFuture ? 'var(--cf-red)' : 'var(--cf-green)'};">${esc(doc.publication_date)}</td></tr>
+            <tr><th>Period</th><td>${esc(doc.reporting_period)}</td></tr>
+            <tr><th>Page</th><td>Page ${doc.page}</td></tr>
+          </table>
+        </div>
+
+        <div style="padding: 0.65rem; border-radius: 4px; font-size: 0.78rem; background: ${isFuture ? 'var(--cf-red-bg)' : 'var(--cf-green-bg)'}; border: 1px solid ${isFuture ? 'var(--cf-red-border)' : 'var(--cf-green-border)'}; color: ${isFuture ? 'var(--cf-red)' : 'var(--cf-green)'};">
+          ${isFuture ? `🚨 <strong>FUTURE LEAK:</strong> Published on ${doc.publication_date}, after as-of cutoff (${asOf}).` : `✓ <strong>WITHIN CUTOFF:</strong> Published on ${doc.publication_date}, valid for as-of date (${asOf}).`}
+        </div>
+
+        <div>
+          <div style="font-family: var(--cf-font-mono); font-size: 0.68rem; color: var(--cf-text-dim); text-transform: uppercase; margin-bottom: 0.35rem;">Verbatim Evidence Quote</div>
+          <div style="padding: 0.75rem; background: var(--cf-surface); border: 1px solid var(--cf-border); border-radius: 4px; font-size: 0.8rem; color: var(--cf-text-muted); font-style: italic;">
+            "${esc(quote || doc.text)}"
+          </div>
+        </div>
+      `;
+
+      document.getElementById('drawer').classList.add('show');
+      document.getElementById('drawerVeil').classList.add('show');
     }
 
-    function closeUploadModal() {
-      document.getElementById('uploadModal').classList.remove('active');
-      document.getElementById('uploadBackdrop').classList.remove('active');
+    function closeDrawer() {
+      document.getElementById('drawer').classList.remove('show');
+      document.getElementById('drawerVeil').classList.remove('show');
     }
 
-    async function handleUploadSubmit(e) {
+    async function handleUpload(e) {
       e.preventDefault();
-      const btn = document.getElementById('btnUploadSubmit');
+      const btn = document.getElementById('btnUp');
       btn.disabled = true;
-      btn.textContent = 'Ingesting & Parsing PDF...';
+      btn.textContent = 'Ingesting...';
 
-      const formData = new FormData();
-      formData.append('file', document.getElementById('uploadFileInput').files[0]);
-      formData.append('company', document.getElementById('uploadCompanyInput').value);
-      formData.append('doc_type', document.getElementById('uploadTypeInput').value);
-      formData.append('reporting_period', document.getElementById('uploadPeriodInput').value);
-      formData.append('publication_date', document.getElementById('uploadDateInput').value);
+      const fd = new FormData();
+      fd.append('file', document.getElementById('upFile').files[0]);
+      fd.append('company', document.getElementById('upCompany').value);
+      fd.append('doc_type', document.getElementById('upType').value);
+      fd.append('publication_date', document.getElementById('upDate').value);
+      fd.append('reporting_period', document.getElementById('upPeriod').value);
 
       try {
-        const resp = await fetch('/api/corpus/upload', {
-          method: 'POST',
-          body: formData
-        });
+        const resp = await fetch('/api/corpus/upload', { method: 'POST', body: fd });
         if (resp.ok) {
           const res = await resp.json();
           alert('✓ Success: ' + res.message);
           closeUploadModal();
-          updateCorpusCount();
-          
-          // Switch to chat with new company prefilled
-          document.getElementById('companyInput').value = document.getElementById('uploadCompanyInput').value;
-          document.getElementById('periodInput').value = document.getElementById('uploadPeriodInput').value;
-          switchTab('prompt');
+          updateSidebarDocs();
+          document.getElementById('companyInput').value = document.getElementById('upCompany').value;
+          document.getElementById('periodInput').value = document.getElementById('upPeriod').value;
+          switchConsoleTab('chat');
         } else {
           const err = await resp.json();
           alert('Upload failed: ' + (err.detail || 'Error'));
         }
       } catch (err) {
-        alert('Upload error: ' + err.message);
+        alert('Error: ' + err.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Ingest PDF & Index Text';
+        btn.textContent = 'Ingest Document';
       }
     }
 
-    // Initial render
+    // Init
     renderChatMessage(null, appState);
     renderBenchmarks();
-    updateCorpusCount();
+    updateSidebarDocs();
   </script>
 </body>
 </html>
