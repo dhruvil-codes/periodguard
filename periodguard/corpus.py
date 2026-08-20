@@ -38,6 +38,17 @@ class Corpus:
         """Retrieve a single document by its unique ID."""
         return self._documents.get(doc_id)
 
+    def remove_document(self, doc_id: str) -> bool:
+        """Remove a document from the corpus by ID."""
+        if doc_id in self._documents:
+            del self._documents[doc_id]
+            return True
+        return False
+
+    def clear(self) -> None:
+        """Remove all documents from the active corpus."""
+        self._documents.clear()
+
     def filter_documents(
         self,
         company: Optional[str] = None,

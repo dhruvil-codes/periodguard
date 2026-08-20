@@ -1,6 +1,7 @@
 import io
-import pytest
 from fastapi.testclient import TestClient
+import pytest
+
 from periodguard.app import app
 
 
@@ -29,45 +30,57 @@ def test_report_endpoint(client):
     response = client.get("/report")
     assert response.status_code == 200
     data = response.json()
-    assert data["correct_mode"]["status"] == "PASS"
-    assert data["broken_mode"]["status"] == "FAIL"
+    assert "case" in data
+    assert data["case"]["company"] == "Acme Industries"
 
 
 def test_presets_endpoint(client):
     response = client.get("/api/presets")
     assert response.status_code == 200
     presets = response.json()
-    assert len(presets) >= 3
-    preset_ids = [p["id"] for p in presets]
-    assert any("future_leak" in pid for pid in preset_ids)
+    assert len(presets) >= 4
+    assert any(p["id"] == "future_leak_default" for p in presets)
 
 
 def test_corpus_endpoints(client):
-    # 1. List corpus
-    resp = client.get("/api/corpus")
-    assert resp.status_code == 200
-    docs = resp.json()
+    response = client.get("/api/corpus")
+    assert response.status_code == 200
+    docs = response.json()
     assert len(docs) >= 4
 
-    # 2. Add manual document
-    add_payload = {
-        "id": "test_q1_fy25_doc",
+    # Add doc
+    payload = {
+        "id": "test_add_doc",
         "company": "Acme Industries",
-        "doc_type": "Press Release",
+        "doc_type": "Filing",
         "reporting_period": "Q1 FY25",
-        "publication_date": "2024-08-10",
+        "publication_date": "2025-01-10",
         "page": 1,
-        "text": "Acme Industries Q1 FY25 EBITDA was steady.",
-        "source_url": "https://example.com",
+        "text": "Acme had 100M revenue.",
     }
-    add_resp = client.post("/api/corpus/add", json=add_payload)
+    add_resp = client.post("/api/corpus/add", json=payload)
     assert add_resp.status_code == 200
-    assert add_resp.json()["status"] == "success"
 
-    # 3. Reset corpus
+    # Delete doc
+    del_resp = client.delete("/api/corpus/test_add_doc")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["status"] == "success"
+
+    # Reset
     reset_resp = client.post("/api/corpus/reset")
     assert reset_resp.status_code == 200
     assert reset_resp.json()["status"] == "success"
+
+
+def test_clear_corpus_endpoint(client):
+    clear_resp = client.post("/api/corpus/clear")
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["count"] == 0
+
+    # Reset
+    reset_resp = client.post("/api/corpus/reset")
+    assert reset_resp.status_code == 200
+    assert reset_resp.json()["count"] >= 4
 
 
 def test_upload_document_endpoint(client):

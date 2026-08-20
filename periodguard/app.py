@@ -37,7 +37,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage across financial PDFs and filings.",
-    version="3.0.0",
+    version="3.1.0",
 )
 
 app.add_middleware(
@@ -148,6 +148,28 @@ def reset_corpus() -> Dict[str, Any]:
     return {
         "status": "success",
         "message": "Corpus restored to default fixtures",
+        "count": len(active_corpus.all_documents()),
+    }
+
+
+@app.post("/api/corpus/clear")
+def clear_corpus() -> Dict[str, Any]:
+    active_corpus.clear()
+    return {
+        "status": "success",
+        "message": "All documents removed from corpus",
+        "count": 0,
+    }
+
+
+@app.delete("/api/corpus/{doc_id}")
+def delete_document(doc_id: str) -> Dict[str, Any]:
+    removed = active_corpus.remove_document(doc_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Document '{doc_id}' not found.")
+    return {
+        "status": "success",
+        "message": f"Document '{doc_id}' successfully removed.",
         "count": len(active_corpus.all_documents()),
     }
 
@@ -434,6 +456,23 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       color: var(--cf-text);
     }
 
+    .btn-danger-icon {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--cf-text-dim);
+      cursor: pointer;
+      font-size: 0.85rem;
+      line-height: 1;
+      padding: 0.15rem 0.35rem;
+      border-radius: var(--cf-radius-sm);
+      transition: all 120ms ease;
+    }
+    .btn-danger-icon:hover {
+      background: var(--cf-red-bg);
+      color: var(--cf-red);
+      border-color: var(--cf-red-border);
+    }
+
     /* Hero Section */
     .hero {
       padding: 3rem 0 2.5rem;
@@ -550,12 +589,22 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     .doc-item-row {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
-      padding: 0.6rem 0.75rem;
+      align-items: center;
+      padding: 0.55rem 0.75rem;
       border: 1px solid var(--cf-border-subtle);
       border-radius: var(--cf-radius-sm);
       background: var(--cf-surface);
       font-size: 0.78rem;
+      gap: 0.5rem;
+    }
+
+    .doc-item-row:hover {
+      border-color: #d4d4d8;
+    }
+
+    .doc-item-info {
+      flex: 1;
+      min-width: 0;
     }
 
     .doc-item-title {
@@ -563,12 +612,15 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       color: var(--cf-text);
       font-family: var(--cf-font-mono);
       font-size: 0.74rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .doc-item-meta {
       color: var(--cf-text-dim);
       font-size: 0.72rem;
-      margin-top: 0.15rem;
+      margin-top: 0.1rem;
     }
 
     .doc-type-pill {
@@ -581,6 +633,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       background: var(--cf-surface-elevated);
       color: var(--cf-text-muted);
       border: 1px solid var(--cf-border);
+      white-space: nowrap;
     }
 
     /* Main Console / Chat Area */
@@ -855,7 +908,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      width: 90%; max-width: 580px;
+      width: 90%; max-width: 600px;
       background: #ffffff;
       border: 1px solid var(--cf-border);
       border-radius: var(--cf-radius-md);
@@ -963,7 +1016,10 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <aside class="sidebar-panel">
         <div class="panel-head">
           <span class="panel-title">Active Corpus</span>
-          <button class="btn btn-subtle" style="padding: 0.15rem 0.4rem; font-size: 0.72rem;" onclick="resetCorpus()">Reset</button>
+          <div style="display: flex; gap: 0.35rem;">
+            <button class="btn btn-subtle" style="padding: 0.15rem 0.4rem; font-size: 0.72rem;" onclick="resetCorpus()" title="Restore default Acme filings">Reset</button>
+            <button class="btn btn-subtle" style="padding: 0.15rem 0.4rem; font-size: 0.72rem; color: var(--cf-red);" onclick="clearAllDocs()" title="Clear all documents to start clean">Clear All</button>
+          </div>
         </div>
         <div class="panel-body">
           <div style="font-size: 0.78rem; color: var(--cf-text-muted);">
@@ -1017,7 +1073,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
               <div class="toolbar-inputs">
                 <span style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-dim);">AS-OF:</span>
                 <input type="date" id="asOfDateInput" class="input-compact" value="2025-05-15">
-                <input type="text" id="companyInput" class="input-compact" value="Acme Industries" style="width: 110px;" placeholder="Company">
+                <input type="text" id="companyInput" class="input-compact" value="Acme Industries" style="width: 110px;" placeholder="Company (Blank = All)">
                 <input type="text" id="periodInput" class="input-compact" value="Q4 FY25" style="width: 70px;" placeholder="Period">
                 <select id="engineSelect" class="input-compact" onchange="toggleApiInput()">
                   <option value="deterministic">Deterministic RAG</option>
@@ -1169,7 +1225,10 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     </div>
     <div id="corpusTableWrap" style="max-height: 320px; overflow-y: auto; margin-bottom: 1rem;"></div>
     <div style="display: flex; justify-content: space-between;">
-      <button class="btn btn-outline" onclick="resetCorpus()">Reset to Default</button>
+      <div style="display: flex; gap: 0.5rem;">
+        <button class="btn btn-outline" onclick="resetCorpus()">Reset to Default</button>
+        <button class="btn btn-subtle" style="color: var(--cf-red);" onclick="clearAllDocs()">Clear All</button>
+      </div>
       <button class="btn btn-primary" onclick="closeCorpusModal()">Done</button>
     </div>
   </div>
@@ -1412,18 +1471,58 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       }
     }
 
+    async function deleteDoc(docId, event) {
+      if (event) event.stopPropagation();
+      if (confirm(`Remove filing '${docId}' from corpus?`)) {
+        try {
+          const resp = await fetch(`/api/corpus/${encodeURIComponent(docId)}`, { method: 'DELETE' });
+          if (resp.ok) {
+            updateSidebarDocs();
+            renderCorpusTable();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+
+    async function clearAllDocs() {
+      if (confirm('Clear all documents from active corpus? You can upload your own PDFs or click Reset anytime.')) {
+        try {
+          const resp = await fetch('/api/corpus/clear', { method: 'POST' });
+          if (resp.ok) {
+            updateSidebarDocs();
+            renderCorpusTable();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+
     async function updateSidebarDocs() {
       const resp = await fetch('/api/corpus');
       if (resp.ok) {
         const docs = await resp.json();
         document.getElementById('countBadge').textContent = docs.length;
+        if (docs.length === 0) {
+          document.getElementById('sidebarDocList').innerHTML = `
+            <div style="padding: 0.75rem; text-align: center; color: var(--cf-text-dim); font-size: 0.75rem; border: 1px dashed var(--cf-border); border-radius: var(--cf-radius-sm);">
+              Corpus is empty. Click "+ Ingest Custom PDF" or "Reset" to load filings.
+            </div>
+          `;
+          return;
+        }
         document.getElementById('sidebarDocList').innerHTML = docs.map(d => `
           <div class="doc-item-row">
-            <div>
+            <div class="doc-item-info">
               <div class="doc-item-title">${esc(d.id)}</div>
               <div class="doc-item-meta">${esc(d.company)} • ${esc(d.publication_date)}</div>
             </div>
-            <span class="doc-type-pill">${esc(d.reporting_period)}</span>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <span class="doc-type-pill">${esc(d.reporting_period)}</span>
+              <button class="btn-danger-icon" onclick="deleteDoc('${esc(d.id)}', event)" title="Remove this document">✕</button>
+            </div>
           </div>
         `).join('');
       }
@@ -1433,10 +1532,18 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       const resp = await fetch('/api/corpus');
       if (resp.ok) {
         const docs = await resp.json();
+        if (docs.length === 0) {
+          document.getElementById('corpusTableWrap').innerHTML = `
+            <div style="padding: 1.5rem; text-align: center; color: var(--cf-text-dim); font-size: 0.82rem;">
+              No documents in active corpus. Ingest a PDF or reset to default fixtures.
+            </div>
+          `;
+          return;
+        }
         document.getElementById('corpusTableWrap').innerHTML = `
           <table class="clean-table">
             <thead>
-              <tr><th>ID</th><th>Company</th><th>Type</th><th>Period</th><th>Published</th></tr>
+              <tr><th>ID</th><th>Company</th><th>Type</th><th>Period</th><th>Published</th><th>Action</th></tr>
             </thead>
             <tbody>
               ${docs.map(d => `
@@ -1446,6 +1553,9 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
                   <td>${esc(d.doc_type)}</td>
                   <td>${esc(d.reporting_period)}</td>
                   <td style="font-family: var(--cf-font-mono);">${esc(d.publication_date)}</td>
+                  <td style="text-align: center;">
+                    <button class="btn-danger-icon" onclick="deleteDoc('${esc(d.id)}', event)" title="Delete document">🗑️</button>
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
