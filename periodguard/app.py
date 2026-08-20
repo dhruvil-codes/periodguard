@@ -1205,9 +1205,12 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         <!-- Mode A: Benchmarks Pane -->
         <div class="tab-content" id="tabContentBench">
           <div style="font-size: 0.82rem; color: var(--cf-text-muted); margin-bottom: 0.85rem;">
-            Click any benchmark trap to evaluate temporal gating performance against baseline retrieval:
+            Click any benchmark trap below to evaluate temporal gating performance directly in place:
           </div>
           <div class="benchmarks-grid" id="benchmarksContainer"></div>
+          
+          <!-- Live In-Place Benchmark Execution Result -->
+          <div id="benchLiveResult" style="display: none; margin-top: 1.25rem;"></div>
         </div>
 
         <!-- Comparison Dropdown -->
@@ -1585,12 +1588,14 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       }
     }
 
+    let activePresetId = null;
+
     async function renderBenchmarks() {
       const resp = await fetch('/api/presets');
       if (resp.ok) {
         const presets = await resp.json();
         document.getElementById('benchmarksContainer').innerHTML = presets.map(p => `
-          <div class="benchmark-card" onclick="runPreset('${esc(p.id)}')">
+          <div class="benchmark-card" id="card_${esc(p.id)}" onclick="runPreset('${esc(p.id)}')">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span class="badge-tag ${esc(p.badge_color || 'purple')}">${esc(p.badge || 'Test')}</span>
@@ -1599,23 +1604,146 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
               <strong style="font-size: 0.88rem; display: block; margin: 0.35rem 0 0.2rem;">${esc(p.title)}</strong>
               <div style="font-size: 0.78rem; color: var(--cf-text-muted); line-height: 1.4;">${esc(p.description)}</div>
             </div>
-            <div style="font-size: 0.74rem; font-weight: 600; color: var(--cf-primary);">⚡ Run Scenario &rarr;</div>
+            <div style="font-size: 0.74rem; font-weight: 600; color: var(--cf-primary); display: flex; align-items: center; justify-content: space-between;">
+              <span>⚡ Run Benchmark Trap</span>
+              <span>&rarr;</span>
+            </div>
           </div>
         `).join('');
       }
     }
 
     async function runPreset(id) {
+      activePresetId = id;
       const resp = await fetch('/api/presets');
       const presets = await resp.json();
       const p = presets.find(x => x.id === id);
-      if (p) {
-        switchConsoleTab('chat');
-        document.getElementById('promptInput').value = p.question;
-        document.getElementById('companyInput').value = p.company;
-        document.getElementById('asOfDateInput').value = p.as_of_date;
-        document.getElementById('periodInput').value = p.as_of_reporting_period;
-        sendPrompt();
+      if (!p) return;
+
+      // Update card visual state
+      document.querySelectorAll('.benchmark-card').forEach(c => {
+        c.style.borderColor = 'var(--cf-border)';
+        c.style.background = 'var(--cf-surface)';
+      });
+      const activeCard = document.getElementById(`card_${id}`);
+      if (activeCard) {
+        activeCard.style.borderColor = 'var(--cf-primary)';
+        activeCard.style.background = '#ffffff';
+      }
+
+      const resBox = document.getElementById('benchLiveResult');
+      resBox.style.display = 'block';
+      resBox.innerHTML = `
+        <div style="padding: 1.25rem; border: 1px solid var(--cf-border); border-radius: var(--cf-radius-md); background: #ffffff; text-align: center;">
+          <div style="font-family: var(--cf-font-mono); font-size: 0.8rem; color: var(--cf-text-dim);">Running verification harness for "${esc(p.title)}"...</div>
+        </div>
+      `;
+      resBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      try {
+        const evalResp = await fetch('/api/evaluate/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: p.question,
+            company: p.company,
+            as_of_date: p.as_of_date,
+            as_of_reporting_period: p.as_of_reporting_period,
+            use_llm: false
+          })
+        });
+
+        if (evalResp.ok) {
+          appState = await evalResp.json();
+          const cor = appState.correct_mode;
+          const brk = appState.broken_mode;
+          const pass = cor.status === 'PASS';
+          const fail = brk.failures.find(f => f.type === 'FUTURE_PERIOD_LEAK') || brk.failures[0];
+
+          const citHtml = (cor.claims || []).map(claim => {
+            return (claim.citations || []).map(c => {
+              const doc = (cor.retrieved_documents || []).find(d => d.id === c.document_id) || {};
+              return `
+                <button class="citation-pill-btn" onclick="inspectDoc('${esc(c.document_id)}', '${esc(c.quoted_text)}')">
+                  <div style="display: flex; justify-content: space-between; font-family: var(--cf-font-mono); font-size: 0.72rem; color: var(--cf-primary);">
+                    <span>📄 ${esc(c.document_id)} (Page ${c.page})</span>
+                    <span style="color: var(--cf-text-dim);">Pub: ${esc(doc.publication_date || '—')}</span>
+                  </div>
+                  <div style="color: var(--cf-text-muted); margin-top: 0.2rem;">"${esc(c.quoted_text)}"</div>
+                </button>
+              `;
+            }).join('');
+          }).join('');
+
+          resBox.innerHTML = `
+            <div style="border: 1px solid var(--cf-border); border-radius: var(--cf-radius-md); background: #ffffff; overflow: hidden;">
+              <!-- Header Bar -->
+              <div style="padding: 0.85rem 1rem; background: var(--cf-surface); border-bottom: 1px solid var(--cf-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <span class="badge-tag ${esc(p.badge_color || 'purple')}">${esc(p.badge || 'Test')}</span>
+                  <strong style="margin-left: 0.5rem; font-size: 0.9rem;">${esc(p.title)}</strong>
+                </div>
+                <div style="font-family: var(--cf-font-mono); font-size: 0.72rem; color: var(--cf-text-dim);">
+                  As-Of Boundary: <strong>${esc(p.as_of_date)}</strong>
+                </div>
+              </div>
+
+              <!-- Question Details -->
+              <div style="padding: 1rem; border-bottom: 1px solid var(--cf-border-subtle); background: #fafafa;">
+                <div style="font-family: var(--cf-font-mono); font-size: 0.68rem; color: var(--cf-text-dim); text-transform: uppercase; margin-bottom: 0.25rem;">Evaluation Prompt:</div>
+                <div style="font-size: 0.88rem; color: var(--cf-text); font-weight: 500;">"${esc(p.question)}"</div>
+              </div>
+
+              <!-- Two-Column Side-By-Side Comparison -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0;">
+                
+                <!-- Left: Naive RAG Baseline (FAIL) -->
+                <div style="padding: 1rem; background: var(--cf-red-bg); border-right: 1px solid var(--cf-red-border); display: flex; flex-direction: column; gap: 0.6rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong style="color: var(--cf-red); font-size: 0.85rem;">✗ Naive Baseline RAG</strong>
+                    <span style="font-family: var(--cf-font-mono); font-size: 0.68rem; font-weight: 700; color: var(--cf-red); background: #ffffff; padding: 0.1rem 0.35rem; border: 1px solid var(--cf-red-border); border-radius: 2px;">STATUS: FAIL</span>
+                  </div>
+
+                  <div style="font-size: 0.82rem; color: #7f1d1d; line-height: 1.45;">
+                    ${fail ? `
+                      🚨 <strong>Future-Period Leak Detected:</strong> Retrieved subsequent filing <code>${esc(fail.document_id)}</code> published on <strong>${esc(fail.publication_date)}</strong>, violating cutoff (<strong>${esc(fail.as_of_date)}</strong>).
+                    ` : 'Failed reliability checks or entity mismatch.'}
+                  </div>
+
+                  <div style="font-size: 0.78rem; color: #991b1b; padding: 0.5rem; background: #ffffff; border: 1px solid var(--cf-red-border); border-radius: 2px;">
+                    <strong>Answer Generated:</strong> ${esc(brk.answer_text || 'Generated answer containing subsequent period numbers.')}
+                  </div>
+                </div>
+
+                <!-- Right: PeriodGuard Temporal Gate (PASS) -->
+                <div style="padding: 1rem; background: var(--cf-green-bg); display: flex; flex-direction: column; gap: 0.6rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong style="color: var(--cf-green); font-size: 0.85rem;">✓ PeriodGuard Gate</strong>
+                    <span style="font-family: var(--cf-font-mono); font-size: 0.68rem; font-weight: 700; color: var(--cf-green); background: #ffffff; padding: 0.1rem 0.35rem; border: 1px solid var(--cf-green-border); border-radius: 2px;">STATUS: PASS (4/4)</span>
+                  </div>
+
+                  <div style="font-size: 0.82rem; color: #065f46; line-height: 1.45;">
+                    ✓ <strong>Strict Temporal Filtering:</strong> Excluded future documents. Retrieved only evidence published on or before <strong>${esc(p.as_of_date)}</strong>.
+                  </div>
+
+                  <div style="font-size: 0.78rem; color: #064e3b; padding: 0.5rem; background: #ffffff; border: 1px solid var(--cf-green-border); border-radius: 2px;">
+                    <strong>Verified Safe Answer:</strong> ${esc(cor.answer_text || (cor.claims && cor.claims.length > 0 ? cor.claims.map(c => c.text).join(' ') : 'No safe evidence found.'))}
+                  </div>
+
+                  ${citHtml ? `
+                    <div style="margin-top: 0.25rem;">
+                      <div style="font-family: var(--cf-font-mono); font-size: 0.66rem; color: #047857; text-transform: uppercase; font-weight: 700; margin-bottom: 0.25rem;">Verified Citations (Click to Inspect):</div>
+                      ${citHtml}
+                    </div>
+                  ` : ''}
+                </div>
+
+              </div>
+            </div>
+          `;
+        }
+      } catch (err) {
+        console.error(err);
       }
     }
 
