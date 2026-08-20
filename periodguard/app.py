@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -37,7 +38,7 @@ except ImportError:
 app = FastAPI(
     title="PeriodGuard",
     description="Evaluation harness for financial research systems detecting future-period citation leakage across financial PDFs and filings.",
-    version="3.1.0",
+    version="3.2.0",
 )
 
 app.add_middleware(
@@ -124,6 +125,87 @@ BENCHMARK_TESTS = [
 ]
 
 
+def detect_metadata_from_text(filename: str, text: str) -> Dict[str, Any]:
+    """Intelligently detects company, reporting period, document type, and date from filename and text snippet."""
+    fn_lower = filename.lower()
+    text_lower = text.lower()
+    full_sample = fn_lower + " " + text_lower[:2500]
+
+    # 1. Company Detection
+    company = "Acme Industries"
+    if any(k in full_sample for k in ["tesla", "tsla"]):
+        company = "Tesla Inc."
+    elif any(k in full_sample for k in ["apple", "aapl", "iphone", "tim cook"]):
+        company = "Apple Inc."
+    elif any(k in full_sample for k in ["microsoft", "msft", "satya"]):
+        company = "Microsoft Corp."
+    elif any(k in full_sample for k in ["infosys", "infy"]):
+        company = "Infosys Limited"
+    elif any(k in full_sample for k in ["nvidia", "nvda", "jensen"]):
+        company = "NVIDIA Corp."
+    elif any(k in full_sample for k in ["amazon", "amzn"]):
+        company = "Amazon.com Inc."
+    elif any(k in full_sample for k in ["google", "alphabet", "goog"]):
+        company = "Alphabet Inc."
+    elif any(k in full_sample for k in ["meta", "facebook"]):
+        company = "Meta Platforms Inc."
+    elif any(k in full_sample for k in ["reliance", "ril"]):
+        company = "Reliance Industries"
+    else:
+        # Check first line for Company Name
+        lines = [line.strip() for line in text.split("\n") if len(line.strip()) > 3]
+        if lines:
+            first_line = lines[0]
+            if any(term in first_line.lower() for term in ["inc", "corp", "ltd", "limited", "industries", "company", "co."]):
+                company = first_line.split("-")[0].split("(")[0].strip().title()
+
+    # 2. Document Type Detection
+    doc_type = "10-Q Quarterly Report"
+    if any(k in full_sample for k in ["10-k", "annual report", "full-year", "full year", "fy24 annual", "fy25 annual", "fy26 annual"]):
+        doc_type = "10-K Annual Report"
+    elif any(k in full_sample for k in ["earnings call", "transcript", "conference call", "qa session"]):
+        doc_type = "Earnings Call Transcript"
+    elif any(k in full_sample for k in ["8-k", "press release", "shareholder update", "financial results"]):
+        doc_type = "10-Q Quarterly Report"
+
+    # 3. Reporting Period Detection
+    period = "Q4 FY25"
+    p_match = re.search(r"\b(Q[1-4]\s*(?:FY\s*)?(?:20\d{2}|\d{2})|FY\s*(?:20\d{2}|\d{2}))\b", text, re.IGNORECASE)
+    if p_match:
+        period = p_match.group(0).upper().replace("  ", " ")
+    else:
+        fn_match = re.search(r"\b(Q[1-4][-_\s]*(?:FY[-_\s]*)?(?:20\d{2}|\d{2})|FY[-_\s]*(?:20\d{2}|\d{2}))\b", filename, re.IGNORECASE)
+        if fn_match:
+            period = fn_match.group(0).upper().replace("-", " ").replace("_", " ")
+
+    # 4. Publication Date Detection
+    pub_date = "2025-05-10"
+    # Match YYYY-MM-DD
+    iso_match = re.search(r"\b(202[3-6]-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b", full_sample)
+    if iso_match:
+        pub_date = iso_match.group(0)
+    else:
+        # Match Month DD, YYYY
+        month_match = re.search(
+            r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(202[3-6])\b",
+            text[:2000],
+            re.IGNORECASE,
+        )
+        if month_match:
+            try:
+                dt = datetime.strptime(f"{month_match.group(1)} {month_match.group(2)} {month_match.group(3)}", "%B %d %Y")
+                pub_date = dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+    return {
+        "company": company,
+        "doc_type": doc_type,
+        "reporting_period": period,
+        "publication_date": pub_date,
+    }
+
+
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     return {"status": "ok", "service": "PeriodGuard Financial Evaluation Engine"}
@@ -174,6 +256,30 @@ def delete_document(doc_id: str) -> Dict[str, Any]:
     }
 
 
+@app.post("/api/corpus/detect-meta")
+async def detect_document_metadata(file: UploadFile = File(...)) -> Dict[str, Any]:
+    file_bytes = await file.read()
+    filename = file.filename or "file"
+    extracted_text = ""
+
+    if filename.lower().endswith(".pdf"):
+        if PYPDF_AVAILABLE:
+            try:
+                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                pages_text = [p.extract_text() for p in reader.pages[:3] if p.extract_text()]
+                extracted_text = "\n".join(pages_text)
+            except Exception:
+                extracted_text = ""
+    else:
+        try:
+            extracted_text = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            extracted_text = file_bytes.decode("latin-1", errors="ignore")
+
+    meta = detect_metadata_from_text(filename, extracted_text)
+    return {"status": "success", "metadata": meta}
+
+
 @app.post("/api/corpus/add")
 def add_document_manual(payload: AddDocumentRequest) -> Dict[str, Any]:
     try:
@@ -211,7 +317,7 @@ async def upload_document_file(
 
     file_bytes = await file.read()
     filename = file.filename or "uploaded_document"
-    doc_id = (custom_doc_id or Path(filename).stem).lower().replace(" ", "_")
+    doc_id = (custom_doc_id or Path(filename).stem).lower().replace(" ", "_").replace("-", "_")
 
     extracted_text = ""
     page_count = 1
@@ -1067,7 +1173,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
 
           <!-- Chat Input -->
           <div class="chat-box-wrap">
-            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question (e.g., What does Acme Industries do? or What was Q4 EBITDA margin?)..." onkeydown="handleKey(event)"></textarea>
+            <textarea id="promptInput" class="chat-textarea" placeholder="Ask any financial question across your filings (e.g., What was total revenue in Q1?)..." onkeydown="handleKey(event)"></textarea>
             
             <div class="chat-toolbar">
               <div class="toolbar-inputs">
@@ -1175,19 +1281,24 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
   <!-- Upload Modal -->
   <div class="modal-veil" id="uploadVeil" onclick="closeUploadModal()"></div>
   <div class="modal-window" id="uploadModal">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--cf-border); padding-bottom: 0.6rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--cf-border); padding-bottom: 0.6rem;">
       <h3 style="font-size: 1.05rem; font-weight: 700;">Ingest Financial PDF / Document</h3>
       <button class="btn btn-subtle" onclick="closeUploadModal()">×</button>
     </div>
+    
+    <div id="autoDetectBadge" style="display: none; margin-bottom: 0.75rem; padding: 0.35rem 0.6rem; background: var(--cf-green-bg); border: 1px solid var(--cf-green-border); border-radius: var(--cf-radius-sm); font-size: 0.74rem; color: var(--cf-green); font-weight: 600;">
+      ✓ Auto-detected metadata from selected file
+    </div>
+
     <form onsubmit="handleUpload(event)" style="display: flex; flex-direction: column; gap: 0.75rem;">
       <div>
         <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">File (.pdf, .txt, .json)</label>
-        <input type="file" id="upFile" class="input-compact" style="width: 100%; margin-top: 0.25rem;" required accept=".pdf,.txt,.json">
+        <input type="file" id="upFile" class="input-compact" style="width: 100%; margin-top: 0.25rem;" required accept=".pdf,.txt,.json" onchange="autoDetectFileMeta(event)">
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
         <div>
           <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Company</label>
-          <input type="text" id="upCompany" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="Acme Industries" required>
+          <input type="text" id="upCompany" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="Acme Industries" required placeholder="e.g. Apple Inc., Tesla Inc.">
         </div>
         <div>
           <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Document Type</label>
@@ -1206,7 +1317,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
         </div>
         <div>
           <label style="font-family: var(--cf-font-mono); font-size: 0.7rem; color: var(--cf-text-muted); font-weight: 600; text-transform: uppercase;">Reporting Period</label>
-          <input type="text" id="upPeriod" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="Q4 FY25" required>
+          <input type="text" id="upPeriod" class="input-compact" style="width: 100%; margin-top: 0.25rem;" value="Q4 FY25" required placeholder="e.g. Q1 FY25, Q4 2024">
         </div>
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
@@ -1271,6 +1382,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     }
 
     function openUploadModal() {
+      document.getElementById('autoDetectBadge').style.display = 'none';
       document.getElementById('uploadModal').classList.add('show');
       document.getElementById('uploadVeil').classList.add('show');
     }
@@ -1301,6 +1413,42 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       const c = document.getElementById('compChevron');
       b.classList.toggle('open');
       c.textContent = b.classList.contains('open') ? '▲' : '▼';
+    }
+
+    async function autoDetectFileMeta(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const badge = document.getElementById('autoDetectBadge');
+      badge.textContent = '⏳ Analyzing file metadata...';
+      badge.style.display = 'block';
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const resp = await fetch('/api/corpus/detect-meta', { method: 'POST', body: formData });
+        if (resp.ok) {
+          const res = await resp.json();
+          const meta = res.metadata;
+          if (meta.company) document.getElementById('upCompany').value = meta.company;
+          if (meta.doc_type) document.getElementById('upType').value = meta.doc_type;
+          if (meta.reporting_period) document.getElementById('upPeriod').value = meta.reporting_period;
+          if (meta.publication_date) document.getElementById('upDate').value = meta.publication_date;
+
+          badge.textContent = `✓ Auto-detected: ${meta.company} (${meta.reporting_period}, ${meta.publication_date})`;
+          badge.style.background = 'var(--cf-green-bg)';
+          badge.style.borderColor = 'var(--cf-green-border)';
+          badge.style.color = 'var(--cf-green)';
+        }
+      } catch (err) {
+        // Fallback simple filename heuristics
+        const fn = file.name.toLowerCase();
+        if (fn.includes('tesla') || fn.includes('tsla')) document.getElementById('upCompany').value = 'Tesla Inc.';
+        if (fn.includes('apple') || fn.includes('aapl')) document.getElementById('upCompany').value = 'Apple Inc.';
+        if (fn.includes('infosys') || fn.includes('infy')) document.getElementById('upCompany').value = 'Infosys Limited';
+        badge.textContent = '✓ Detected from filename';
+      }
     }
 
     function renderChatMessage(q, data) {

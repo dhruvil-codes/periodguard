@@ -83,6 +83,17 @@ def test_clear_corpus_endpoint(client):
     assert reset_resp.json()["count"] >= 4
 
 
+def test_detect_meta_endpoint(client):
+    file_content = b"APPLE INC. - Condensed Financial Statements Q1 FY25. Published: January 30, 2025. Total revenue was $124.3B."
+    files = {"file": ("apple_q1_fy25.txt", io.BytesIO(file_content), "text/plain")}
+    response = client.post("/api/corpus/detect-meta", files=files)
+    assert response.status_code == 200
+    meta = response.json()["metadata"]
+    assert meta["company"] == "Apple Inc."
+    assert "Q1" in meta["reporting_period"]
+    assert meta["publication_date"] == "2025-01-30"
+
+
 def test_upload_document_endpoint(client):
     file_content = b"Acme Industries Q3 FY25 revenue reached $400M with 18% EBITDA margin."
     files = {"file": ("acme_q3_report.txt", io.BytesIO(file_content), "text/plain")}
